@@ -1,3 +1,4 @@
+<!DOCTYPE html>
 <html lang="en-GB" style="--deck-opacity: 1; --primary-colour: #f43f5e; --primary-rgb: 244, 63, 94; --secondary-colour: #f59e0b; --secondary-rgb: 245, 158, 11; --shutter-bg: #1c1f31; --shutter-rgb: 28, 31, 49;"><head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -1424,7 +1425,7 @@
             <div id="tiktok-stage" style="transform: scale(1);">
                 
                 <!-- LAYER 0: SIMULATED ROOM / UPLOADED SCREENSHOT UNDERLAY -->
-                <div id="reference-underlay" class="">
+                <div id="reference-underlay" class="underlay-hidden">
                     <!-- Simulated Wide Webcam with Bedroom Background Clutter (Bed Left, Door Right, Cord Top) -->
                     <div class="sim-webcam-room" id="sim-webcam-room" style="height: 557px;">
                         <div class="sim-room-bed-left"></div>
@@ -1653,8 +1654,8 @@
 
             <!-- 4-Tab Navigation -->
             <nav class="studio-tabs">
-                <button class="tab-btn tab-active" data-tab="tab-camera">1. Cam Mask</button>
-                <button class="tab-btn" data-tab="tab-zones">2. Zones &amp; Deck</button>
+                <button class="tab-btn" data-tab="tab-camera">1. Cam Mask</button>
+                <button class="tab-btn tab-active" data-tab="tab-zones">2. Zones &amp; Deck</button>
                 <button class="tab-btn" data-tab="tab-widgets">3. Widgets</button>
                 <button class="tab-btn" data-tab="tab-theme">4. Theme &amp; Sim</button>
             </nav>
@@ -1664,7 +1665,7 @@
                 <!-- ==============================================================
                      TAB 1: CAMERA PRIVACY MASK & BACKGROUND HIDER (NO LIMITS)
                      ============================================================== -->
-                <div class="tab-pane pane-active" id="tab-camera">
+                <div class="tab-pane" id="tab-camera">
                     
                     <!-- Reference Screenshot Uploader -->
                     <div class="control-card">
@@ -1805,7 +1806,7 @@
                 <!-- ==============================================================
                      TAB 2: VERTICAL ZONES & BOTTOM DECK ARCHITECT
                      ============================================================== -->
-                <div class="tab-pane" id="tab-zones">
+                <div class="tab-pane pane-active" id="tab-zones">
                     
                     <div class="control-card">
                         <div class="card-heading">
@@ -1845,8 +1846,8 @@
                             <span>Canvas Preview Mode</span>
                         </div>
                         <div class="grid-3">
-                            <button class="ctrl-btn btn-selected" data-viewmode="simulated">Room + Game</button>
-                            <button class="ctrl-btn" data-viewmode="grid">Alpha Grid</button>
+                            <button class="ctrl-btn" data-viewmode="simulated">Room + Game</button>
+                            <button class="ctrl-btn btn-selected" data-viewmode="grid">Alpha Grid</button>
                             <button class="ctrl-btn" data-viewmode="pure">Pure Alpha</button>
                         </div>
                     </div>
@@ -2090,8 +2091,8 @@
                 goalMax: 1000,
                 likesCount: 24850,
                 autoPilot: true,
-                soundEnabled: false,
-                isObsMode: true
+                soundEnabled: true,
+                isObsMode: new URLSearchParams(window.location.search).get('obs') === 'true'
             };
 
             if (config.isObsMode) {
