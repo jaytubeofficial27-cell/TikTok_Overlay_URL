@@ -1,0 +1,2932 @@
+<!DOCTYPE html>
+<html lang="en-GB" style="--deck-opacity: 1; --primary-colour: #f43f5e; --primary-rgb: 244, 63, 94; --secondary-colour: #f59e0b; --secondary-rgb: 245, 158, 11; --shutter-bg: #1c1f31; --shutter-rgb: 28, 31, 49;"><head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TikTok LIVE Studio 9:16 Overlay &amp; Camera Privacy Mask Engine</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="">
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@500;700;800&amp;family=Plus+Jakarta+Sans:wght@400;600;700;800&amp;family=Rajdhani:wght@600;700;800&amp;display=swap" rel="stylesheet">
+    
+    <style>
+        /* ==========================================================================
+           CSS CUSTOM PROPERTIES & THEME TOKENS (BRITISH ENGLISH)
+           ========================================================================== */
+        :root {
+            --primary-colour: #06b6d4;
+            --primary-rgb: 6, 182, 212;
+            --secondary-colour: #8b5cf6;
+            --secondary-rgb: 139, 92, 246;
+            --accent-pink: #f43f5e;
+            --accent-gold: #f59e0b;
+            --accent-emerald: #10b981;
+            --shutter-bg: #070913;
+            --shutter-rgb: 7, 9, 19;
+            --shutter-opacity: 0.98;
+            --deck-opacity: 0.94;
+            --border-thickness: 3px;
+            --glow-intensity: 1;
+            --ui-scale: 1;
+            --font-display: 'Rajdhani', sans-serif;
+            --font-sans: 'Plus Jakarta Sans', sans-serif;
+            --font-mono: 'JetBrains Mono', monospace;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            user-select: none;
+            -webkit-font-smoothing: antialiased;
+        }
+
+        html, body {
+            width: 100vw;
+            height: 100vh;
+            overflow: hidden;
+            font-family: var(--font-sans);
+            color: #f8fafc;
+            background-color: #05070e;
+        }
+
+        body.obs-production-mode {
+            background-color: transparent !important;
+        }
+
+        /* ==========================================================================
+           STUDIO WORKSPACE LAYOUT (LEFT STAGE + RIGHT UNLIMITED CONTROL DECK)
+           ========================================================================== */
+        .workspace-shell {
+            display: flex;
+            width: 100vw;
+            height: 100vh;
+            overflow: hidden;
+            position: relative;
+        }
+
+        .stage-viewport {
+            flex: 1;
+            height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+            overflow: hidden;
+            background: radial-gradient(circle at 50% 50%, #111827 0%, #04060c 100%);
+            transition: background 0.3s ease;
+        }
+
+        .stage-viewport.mode-alpha-grid {
+            background-color: #0d1117;
+            background-image: 
+                linear-gradient(45deg, #161b22 25%, transparent 25%), 
+                linear-gradient(-45deg, #161b22 25%, transparent 25%), 
+                linear-gradient(45deg, transparent 75%, #161b22 75%), 
+                linear-gradient(-45deg, transparent 75%, #161b22 75%);
+            background-size: 24px 24px;
+            background-position: 0 0, 0 12px, 12px -12px, -12px 0;
+        }
+
+        .stage-viewport.mode-pure-obs {
+            background: transparent !important;
+        }
+
+        /* ==========================================================================
+           NATIVE 1080x1920 (9:16 PORTRAIT) TIKTOK STUDIO STAGE
+           ========================================================================== */
+        #tiktok-stage {
+            position: relative;
+            width: 1080px;
+            height: 1920px;
+            transform-origin: center center;
+            overflow: hidden;
+            flex-shrink: 0;
+            box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.12), 0 30px 90px rgba(0, 0, 0, 0.9);
+        }
+
+        .stage-viewport.mode-pure-obs #tiktok-stage,
+        body.obs-production-mode #tiktok-stage {
+            box-shadow: none !important;
+        }
+
+        /* ==========================================================================
+           LAYER 0: SIMULATED ROOM / CUSTOM SCREENSHOT REFERENCE UNDERLAY
+           ========================================================================== */
+        #reference-underlay {
+            position: absolute;
+            inset: 0;
+            width: 1080px;
+            height: 1920px;
+            pointer-events: none;
+            z-index: 1;
+            overflow: hidden;
+        }
+
+        #reference-underlay.underlay-hidden {
+            display: none !important;
+        }
+
+        /* Simulated Wide Webcam Room (Matching user screenshot layout) */
+        .sim-webcam-room {
+            position: absolute;
+            top: 140px;
+            left: 0;
+            width: 1080px;
+            height: 525px;
+            background: linear-gradient(90deg, #b89f6d 0%, #d4be8d 28%, #e2cf9f 50%, #c7b07e 76%, #a89060 100%);
+            overflow: hidden;
+        }
+
+        /* Simulated Bedroom Background Clutter on Left, Right, Top (to demonstrate masking) */
+        .sim-room-bed-left {
+            position: absolute;
+            bottom: 20px;
+            left: 25px;
+            width: 280px;
+            height: 240px;
+            background: #27272a;
+            border-radius: 12px;
+            border-top: 28px solid #18181b;
+            box-shadow: 10px 10px 30px rgba(0,0,0,0.4);
+        }
+        .sim-room-bed-left::after {
+            content: 'BACKGROUND (BED / WALL)';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-family: var(--font-mono);
+            font-size: 15px;
+            font-weight: 800;
+            color: rgba(255,255,255,0.45);
+            text-align: center;
+            width: 90%;
+        }
+
+        .sim-room-door-right {
+            position: absolute;
+            top: 85px;
+            right: 75px;
+            width: 210px;
+            height: 390px;
+            background: #7c3f1c;
+            border: 8px solid #e7e5e4;
+            box-shadow: -10px 10px 30px rgba(0,0,0,0.35);
+        }
+        .sim-room-door-right::after {
+            content: 'BACKGROUND (DOOR / HALL)';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-family: var(--font-mono);
+            font-size: 15px;
+            font-weight: 800;
+            color: rgba(255,255,255,0.55);
+            text-align: center;
+            width: 90%;
+        }
+
+        .sim-room-cord-top {
+            position: absolute;
+            top: -30px;
+            left: 410px;
+            width: 140px;
+            height: 150px;
+            border: 7px solid #262626;
+            border-radius: 50%;
+        }
+
+        /* Simulated Streamer Silhouette in Centre */
+        .sim-streamer-person {
+            position: absolute;
+            bottom: -15px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 460px;
+            height: 410px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: flex-end;
+        }
+        .sim-streamer-head {
+            width: 145px;
+            height: 175px;
+            background: #e5b899;
+            border-radius: 70px 70px 60px 60px;
+            position: relative;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.35);
+            border: 4px solid rgba(255,255,255,0.2);
+        }
+        /* Headset */
+        .sim-streamer-head::before {
+            content: '';
+            position: absolute;
+            inset: -14px -18px 30px -18px;
+            border: 16px solid #18181b;
+            border-bottom: none;
+            border-radius: 90px 90px 0 0;
+        }
+        .sim-streamer-shoulders {
+            width: 440px;
+            height: 220px;
+            background: linear-gradient(135deg, #1e3a8a 0%, #172554 50%, #1e40af 100%);
+            border-radius: 140px 140px 0 0;
+            margin-top: -15px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-family: var(--font-mono);
+            font-weight: 800;
+            font-size: 18px;
+            color: rgba(255,255,255,0.7);
+            letter-spacing: 2px;
+        }
+
+        /* Simulated Centre Game Area */
+        .sim-game-feed {
+            position: absolute;
+            top: 665px;
+            left: 0;
+            width: 1080px;
+            height: 605px;
+            background: 
+                radial-gradient(circle at 50% 50%, rgba(var(--primary-rgb), 0.16) 0%, transparent 65%),
+                linear-gradient(180deg, #090d1a 0%, #0f172a 50%, #090d1a 100%);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 12px;
+        }
+        .sim-game-crosshair {
+            width: 64px;
+            height: 64px;
+            border: 2px dashed rgba(255, 255, 255, 0.22);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .sim-game-crosshair::after {
+            content: '';
+            width: 8px;
+            height: 8px;
+            background: var(--primary-colour);
+            border-radius: 50%;
+        }
+        .sim-game-label {
+            font-family: var(--font-mono);
+            font-size: 20px;
+            font-weight: 800;
+            letter-spacing: 3px;
+            color: rgba(255, 255, 255, 0.3);
+            text-transform: uppercase;
+        }
+
+        /* Uploaded User Reference Screenshot */
+        #uploaded-ref-img {
+            position: absolute;
+            inset: 0;
+            width: 1080px;
+            height: 1920px;
+            object-fit: cover;
+            display: none;
+            z-index: 5;
+        }
+
+        /* ==========================================================================
+           LAYER 1: CAMERA PRIVACY BUNKER & BACKGROUND MASKING SYSTEM (TOP ZONE)
+           ========================================================================== */
+        /* SVG Mask & Frame Canvas covers the entire Top & Header area to block out bedroom */
+        #camera-mask-layer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 1080px;
+            height: 1920px;
+            pointer-events: none;
+            z-index: 10;
+        }
+
+        /* HUD Side Wing Panels that sit over the masked Left & Right bedroom areas */
+        .privacy-wing-hud {
+            position: absolute;
+            pointer-events: none;
+            z-index: 14;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            padding: 18px 14px;
+            overflow: hidden;
+            transition: opacity 0.25s ease;
+        }
+
+        .wing-hud-card {
+            background: rgba(10, 14, 28, 0.78);
+            border: 1px solid rgba(var(--primary-rgb), 0.35);
+            border-radius: 14px;
+            padding: 14px 12px;
+            box-shadow: inset 0 0 20px rgba(var(--primary-rgb), 0.12);
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            height: 100%;
+            justify-content: space-between;
+            position: relative;
+            overflow: hidden;
+        }
+
+        /* Subtle Hex / Carbon texture inside Privacy Wings */
+        .wing-hud-card::before {
+            content: '';
+            position: absolute;
+            inset: 0;
+            background-image: radial-gradient(rgba(var(--primary-rgb), 0.18) 1px, transparent 1px);
+            background-size: 14px 14px;
+            pointer-events: none;
+            opacity: 0.6;
+        }
+
+        .wing-tag {
+            font-family: var(--font-mono);
+            font-size: 12px;
+            font-weight: 800;
+            letter-spacing: 1.5px;
+            color: var(--primary-colour);
+            text-transform: uppercase;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .wing-tag-dot {
+            width: 7px;
+            height: 7px;
+            border-radius: 50%;
+            background: var(--primary-colour);
+            box-shadow: 0 0 8px var(--primary-colour);
+            animation: livePulse 1.8s infinite;
+        }
+
+        .wing-equaliser {
+            display: flex;
+            align-items: flex-end;
+            justify-content: space-between;
+            gap: 5px;
+            height: 90px;
+            padding: 8px 4px;
+        }
+
+        .eq-bar {
+            flex: 1;
+            background: linear-gradient(180deg, var(--primary-colour), var(--secondary-colour));
+            border-radius: 4px;
+            box-shadow: 0 0 10px rgba(var(--primary-rgb), 0.5);
+            animation: eqBounce 1.1s ease-in-out infinite alternate;
+        }
+
+        @keyframes eqBounce {
+            0% { height: 18%; opacity: 0.55; }
+            100% { height: 95%; opacity: 1; }
+        }
+
+        .wing-stat-block {
+            display: flex;
+            flex-direction: column;
+            gap: 3px;
+            border-top: 1px solid rgba(255, 255, 255, 0.1);
+            padding-top: 8px;
+        }
+
+        .wing-stat-label {
+            font-family: var(--font-mono);
+            font-size: 10px;
+            color: #94a3b8;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .wing-stat-val {
+            font-family: var(--font-display);
+            font-size: 20px;
+            font-weight: 800;
+            color: #ffffff;
+            text-shadow: 0 0 10px rgba(var(--primary-rgb), 0.6);
+        }
+
+        /* ==========================================================================
+           LAYER 2: ZONE DIVIDERS & BOTTOM INTERACTIVE DECK (Y: 1270 to 1920)
+           ========================================================================== */
+        #zone-divider-top,
+        #zone-divider-bottom {
+            position: absolute;
+            left: 0;
+            width: 1080px;
+            height: 8px;
+            z-index: 18;
+            pointer-events: none;
+            background: linear-gradient(90deg, var(--secondary-colour), var(--primary-colour), var(--secondary-colour));
+            box-shadow: 0 0 22px rgba(var(--primary-rgb), 0.85), 0 0 40px rgba(var(--secondary-rgb), 0.5);
+        }
+
+        #zone-divider-top::after,
+        #zone-divider-bottom::after {
+            content: '';
+            position: absolute;
+            top: -3px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 180px;
+            height: 14px;
+            background: var(--primary-colour);
+            clip-path: polygon(12px 0, calc(100% - 12px) 0, 100% 50%, calc(100% - 12px) 100%, 12px 100%, 0 50%);
+            box-shadow: 0 0 20px var(--primary-colour);
+        }
+
+        /* Bottom Sanctuary Deck Background Plate */
+        #bottom-deck-plate {
+            position: absolute;
+            left: 0;
+            bottom: 0;
+            width: 1080px;
+            height: 650px;
+            z-index: 12;
+            pointer-events: none;
+            background-color: rgba(var(--shutter-rgb), var(--deck-opacity));
+            overflow: hidden;
+        }
+
+        /* Cyber Circuit & Grid Texture inside Bottom Deck */
+        .deck-pattern-layer {
+            position: absolute;
+            inset: 0;
+            background-image: 
+                radial-gradient(circle at 50% 0%, rgba(var(--primary-rgb), 0.25) 0%, transparent 60%),
+                linear-gradient(rgba(var(--primary-rgb), 0.06) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(var(--primary-rgb), 0.06) 1px, transparent 1px);
+            background-size: 100% 100%, 36px 36px, 36px 36px;
+        }
+
+        /* Glowing Cyber Corner Traces matching screenshot vibe */
+        .deck-cyber-wings {
+            position: absolute;
+            bottom: 110px;
+            left: 0;
+            width: 1080px;
+            height: 220px;
+            pointer-events: none;
+            opacity: 0.85;
+        }
+
+        /* ==========================================================================
+           LAYER 3: MODULAR DRAGGABLE & CUSTOMISABLE WIDGETS
+           ========================================================================== */
+        .overlay-widget {
+            position: absolute;
+            z-index: 25;
+            transform-origin: center center;
+            cursor: grab;
+            transition: box-shadow 0.2s ease, opacity 0.3s ease;
+        }
+
+        .overlay-widget:active {
+            cursor: grabbing;
+        }
+
+        /* Highlight draggable widgets when hovering on canvas in Sandbox mode */
+        body:not(.obs-production-mode) .stage-viewport:not(.mode-pure-obs) .overlay-widget:hover {
+            outline: 2px dashed rgba(var(--primary-rgb), 0.85);
+            outline-offset: 4px;
+        }
+
+        .widget-hidden {
+            opacity: 0 !important;
+            pointer-events: none !important;
+        }
+
+        .cyber-panel {
+            background: rgba(10, 14, 28, 0.78);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border: 1.5px solid rgba(var(--primary-rgb), 0.48);
+            box-shadow: 
+                0 12px 34px rgba(0, 0, 0, 0.75),
+                0 0 calc(22px * var(--glow-intensity)) rgba(var(--primary-rgb), 0.25),
+                inset 0 1px 1px rgba(255, 255, 255, 0.16);
+            border-radius: 16px;
+            position: relative;
+            overflow: hidden;
+        }
+
+        /* Laser scan line */
+        .cyber-panel::after {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -150%;
+            width: 100%;
+            height: 2px;
+            background: linear-gradient(90deg, transparent, var(--primary-colour), var(--secondary-colour), transparent);
+            animation: laserScan 6s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+            pointer-events: none;
+        }
+
+        @keyframes laserScan {
+            0% { transform: translate3d(0, 0, 0); }
+            50%, 100% { transform: translate3d(300%, 0, 0); }
+        }
+
+        @keyframes livePulse {
+            0%, 100% { transform: scale(1); opacity: 1; }
+            50% { transform: scale(1.18); opacity: 0.75; }
+        }
+
+        @keyframes slideInSpring {
+            0% { opacity: 0; transform: translate3d(-28px, 10px, 0) scale(0.94); }
+            70% { opacity: 1; transform: translate3d(3px, -1px, 0) scale(1.01); }
+            100% { opacity: 1; transform: translate3d(0, 0, 0) scale(1); }
+        }
+
+        @keyframes stripeMove {
+            0% { background-position: 0 0; }
+            100% { background-position: 40px 0; }
+        }
+
+        /* WIDGET A: GOAL PROGRESS BAR */
+        #widget-goal {
+            left: 40px;
+            top: 1295px;
+            width: 650px;
+        }
+
+        .goal-box {
+            padding: 14px 20px;
+        }
+
+        .goal-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 8px;
+        }
+
+        .goal-title-text {
+            font-family: var(--font-display);
+            font-size: 22px;
+            font-weight: 800;
+            letter-spacing: 1.2px;
+            text-transform: uppercase;
+            color: #ffffff;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .goal-metrics {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-family: var(--font-mono);
+            font-size: 16px;
+            font-weight: 800;
+        }
+
+        .goal-pct-badge {
+            background: rgba(var(--primary-rgb), 0.25);
+            border: 1px solid var(--primary-colour);
+            padding: 2px 10px;
+            border-radius: 6px;
+            color: #ffffff;
+            font-size: 14px;
+        }
+
+        .goal-track {
+            width: 100%;
+            height: 18px;
+            background: rgba(4, 6, 14, 0.9);
+            border-radius: 9px;
+            border: 1px solid rgba(255, 255, 255, 0.14);
+            overflow: hidden;
+        }
+
+        .goal-fill {
+            height: 100%;
+            width: 68%;
+            background: linear-gradient(90deg, var(--secondary-colour), var(--primary-colour));
+            box-shadow: 0 0 18px var(--primary-colour);
+            border-radius: 8px;
+            position: relative;
+            transition: width 0.5s cubic-bezier(0.22, 1, 0.36, 1);
+        }
+
+        .goal-fill::before {
+            content: '';
+            position: absolute;
+            inset: 0;
+            background-image: linear-gradient(
+                45deg,
+                rgba(255, 255, 255, 0.24) 25%,
+                transparent 25%,
+                transparent 50%,
+                rgba(255, 255, 255, 0.24) 50%,
+                rgba(255, 255, 255, 0.24) 75%,
+                transparent 75%,
+                transparent
+            );
+            background-size: 28px 28px;
+            animation: stripeMove 1.1s linear infinite;
+        }
+
+        /* WIDGET B: LIVE TAP & HEART COUNTER */
+        #widget-likes {
+            left: 710px;
+            top: 1295px;
+            width: 330px;
+        }
+
+        #floating-hearts-container {
+            position: absolute;
+            bottom: 100%;
+            right: 20px;
+            width: 130px;
+            height: 290px;
+            pointer-events: none;
+            overflow: visible;
+        }
+
+        .floating-heart-node {
+            position: absolute;
+            bottom: 0;
+            will-change: transform, opacity;
+            filter: drop-shadow(0 0 10px currentColor);
+        }
+
+        .likes-box {
+            padding: 14px 18px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .likes-left {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .heart-icon-pill {
+            width: 48px;
+            height: 48px;
+            border-radius: 12px;
+            background: rgba(244, 63, 94, 0.22);
+            border: 1px solid rgba(244, 63, 94, 0.6);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #fb7185;
+            box-shadow: 0 0 16px rgba(244, 63, 94, 0.35);
+            transition: transform 0.12s ease;
+        }
+
+        .likes-box.tap-active .heart-icon-pill {
+            transform: scale(1.22) rotate(-8deg);
+        }
+
+        .likes-count-val {
+            font-family: var(--font-display);
+            font-size: 30px;
+            font-weight: 800;
+            line-height: 1;
+            color: #ffffff;
+        }
+
+        .likes-sub-label {
+            font-family: var(--font-mono);
+            font-size: 11px;
+            color: #94a3b8;
+            text-transform: uppercase;
+        }
+
+        .combo-badge {
+            font-family: var(--font-mono);
+            font-size: 12px;
+            font-weight: 800;
+            padding: 3px 8px;
+            border-radius: 6px;
+            background: linear-gradient(135deg, #f43f5e, var(--secondary-colour));
+            color: #ffffff;
+        }
+
+        /* WIDGET C: ANIMATED CHAT SANCTUARY BOX */
+        #widget-chat {
+            left: 40px;
+            top: 1405px;
+            width: 650px;
+            height: 270px;
+        }
+
+        .chat-box-panel {
+            width: 100%;
+            height: 100%;
+            padding: 14px 18px;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .chat-box-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding-bottom: 8px;
+            margin-bottom: 8px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            font-family: var(--font-display);
+            font-size: 16px;
+            font-weight: 800;
+            letter-spacing: 1.5px;
+            color: var(--primary-colour);
+            text-transform: uppercase;
+        }
+
+        .chat-feed-stream {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            justify-content: flex-end;
+            gap: 8px;
+            overflow: hidden;
+            mask-image: linear-gradient(to bottom, transparent 0%, black 22%, black 100%);
+            -webkit-mask-image: linear-gradient(to bottom, transparent 0%, black 22%, black 100%);
+        }
+
+        .chat-row {
+            background: rgba(15, 23, 42, 0.76);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 10px;
+            padding: 8px 12px;
+            font-size: 15px;
+            line-height: 1.35;
+            animation: slideInSpring 0.32s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+        }
+
+        .chat-user-tag {
+            font-weight: 800;
+            margin-right: 6px;
+        }
+
+        /* WIDGET D: RECENT EVENTS TICKER STACK */
+        #widget-events {
+            left: 710px;
+            top: 1405px;
+            width: 330px;
+        }
+
+        .events-stack {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .event-pill-card {
+            background: rgba(10, 14, 28, 0.82);
+            backdrop-filter: blur(14px);
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            border-left: 4px solid var(--primary-colour);
+            border-radius: 12px;
+            padding: 11px 14px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            animation: slideInSpring 0.4s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+        }
+
+        .event-pill-user {
+            font-weight: 800;
+            font-size: 14px;
+            color: #ffffff;
+        }
+
+        .event-pill-type {
+            font-size: 12px;
+            color: var(--primary-colour);
+            font-weight: 700;
+        }
+
+        /* WIDGET E: STREAMING LIVE CYBER BANNER FOOTER (Matches Screenshot Footer) */
+        #widget-footer-banner {
+            left: 190px;
+            top: 1695px;
+            width: 700px;
+        }
+
+        .cyber-footer-banner {
+            text-align: center;
+            padding: 10px 24px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 2px;
+        }
+
+        .footer-headline {
+            font-family: var(--font-display);
+            font-size: 40px;
+            font-weight: 800;
+            letter-spacing: 4px;
+            text-transform: uppercase;
+            color: var(--primary-colour);
+            text-shadow: 0 0 18px rgba(var(--primary-rgb), 0.9), 0 0 36px rgba(var(--primary-rgb), 0.5);
+            line-height: 1;
+        }
+
+        .footer-subline {
+            font-family: var(--font-mono);
+            font-size: 14px;
+            font-weight: 700;
+            letter-spacing: 2.5px;
+            text-transform: uppercase;
+            color: #e2e8f0;
+            opacity: 0.9;
+        }
+
+        /* ==========================================================================
+           LAYER 4: HIGH-IMPACT GIFT ALERT POP-UP & PARTICLE CANVAS
+           ========================================================================== */
+        #fx-canvas {
+            position: absolute;
+            inset: 0;
+            width: 1080px;
+            height: 1920px;
+            pointer-events: none;
+            z-index: 45;
+        }
+
+        #widget-gift-alert {
+            position: absolute;
+            left: 540px;
+            top: 960px;
+            transform: translate(-50%, -50%);
+            z-index: 50;
+            pointer-events: none;
+        }
+
+        .gift-alert-modal {
+            width: 560px;
+            padding: 32px 28px;
+            border-radius: 24px;
+            background: rgba(7, 10, 22, 0.92);
+            border: 2px solid var(--primary-colour);
+            box-shadow: 0 25px 70px rgba(0, 0, 0, 0.9), 0 0 55px rgba(var(--primary-rgb), 0.55);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            text-align: center;
+            opacity: 0;
+            transform: scale(0.7) translateY(30px);
+            transition: opacity 0.35s ease, transform 0.4s cubic-bezier(0.22, 1, 0.36, 1);
+        }
+
+        .gift-alert-modal.alert-visible {
+            opacity: 1;
+            transform: scale(1) translateY(0);
+        }
+
+        .alert-tag-pill {
+            font-family: var(--font-mono);
+            font-size: 12px;
+            font-weight: 800;
+            letter-spacing: 3px;
+            padding: 4px 14px;
+            border-radius: 99px;
+            background: rgba(var(--primary-rgb), 0.22);
+            border: 1px solid var(--primary-colour);
+            color: var(--primary-colour);
+            margin-bottom: 14px;
+        }
+
+        .alert-user-title {
+            font-family: var(--font-display);
+            font-size: 38px;
+            font-weight: 800;
+            color: #ffffff;
+            text-shadow: 0 0 20px var(--primary-colour);
+        }
+
+        .alert-gift-sub {
+            font-size: 19px;
+            color: #cbd5e1;
+            margin-top: 4px;
+        }
+
+        /* ==========================================================================
+           LAYER 5: TIKTOK NATIVE UI SAFE-ZONE GUIDE OVERLAY (TOGGLEABLE)
+           ========================================================================== */
+        #tiktok-safe-zones {
+            position: absolute;
+            inset: 0;
+            width: 1080px;
+            height: 1920px;
+            pointer-events: none;
+            z-index: 60;
+            transition: opacity 0.25s ease;
+        }
+
+        #tiktok-safe-zones.safe-hidden {
+            opacity: 0 !important;
+        }
+
+        .tt-safe-pill {
+            position: absolute;
+            background: rgba(0, 0, 0, 0.62);
+            border: 1.5px dashed rgba(255, 255, 255, 0.42);
+            border-radius: 999px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 8px 20px;
+            color: rgba(255, 255, 255, 0.85);
+            font-size: 18px;
+            font-weight: 700;
+        }
+
+        /* Matches "Lord Jason Fable" top-left host pill from screenshot */
+        .tt-host-pill {
+            top: 44px;
+            left: 32px;
+            height: 76px;
+        }
+
+        .tt-host-avatar {
+            width: 52px;
+            height: 52px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, #475569, #1e293b);
+            border: 2px solid #ffffff;
+        }
+
+        /* Matches "Gaming Ranking" badge from screenshot */
+        .tt-ranking-pill {
+            top: 148px;
+            left: 32px;
+            height: 52px;
+            font-size: 16px;
+            background: rgba(0, 0, 0, 0.55);
+        }
+
+        /* Matches Top-Right Viewer Bubbles */
+        .tt-viewers-pill {
+            top: 52px;
+            right: 32px;
+            height: 60px;
+            width: 220px;
+            justify-content: center;
+            font-size: 14px;
+            font-family: var(--font-mono);
+        }
+
+        /* Matches Bottom Action Icons Bar (Link, Co-host, Magic Wand, Share, Chat) */
+        .tt-bottom-bar {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            width: 1080px;
+            height: 110px;
+            background: rgba(0, 0, 0, 0.72);
+            border-top: 1.5px dashed rgba(255, 255, 255, 0.35);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 36px;
+            font-family: var(--font-mono);
+            font-size: 15px;
+            color: rgba(255, 255, 255, 0.75);
+        }
+
+        .tt-icon-circles {
+            display: flex;
+            gap: 18px;
+        }
+
+        .tt-circle {
+            width: 58px;
+            height: 58px;
+            border-radius: 50%;
+            background: rgba(255, 255, 255, 0.14);
+            border: 1px solid rgba(255, 255, 255, 0.3);
+        }
+
+        /* ==========================================================================
+           RIGHT SIDEBAR: UNLIMITED CUSTOMISATION & MASKING STUDIO PANEL
+           ========================================================================== */
+        #studio-sidebar {
+            width: 470px;
+            height: 100vh;
+            background: #090d1a;
+            border-left: 1px solid rgba(255, 255, 255, 0.12);
+            display: flex;
+            flex-direction: column;
+            z-index: 200;
+            flex-shrink: 0;
+            transition: margin-right 0.3s ease;
+        }
+
+        #studio-sidebar.sidebar-collapsed {
+            margin-right: -470px;
+        }
+
+        #floating-reopen-btn {
+            position: fixed;
+            top: 18px;
+            right: 18px;
+            z-index: 190;
+            padding: 10px 16px;
+            border-radius: 10px;
+            background: rgba(9, 13, 26, 0.92);
+            border: 1px solid var(--primary-colour);
+            color: #ffffff;
+            font-family: var(--font-sans);
+            font-size: 13px;
+            font-weight: 700;
+            cursor: pointer;
+            box-shadow: 0 8px 25px rgba(0, 0, 0, 0.7);
+            display: none;
+            align-items: center;
+            gap: 8px;
+        }
+
+        #studio-sidebar.sidebar-collapsed ~ #floating-reopen-btn {
+            display: flex;
+        }
+
+        .sidebar-top-header {
+            padding: 16px 20px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            background: rgba(255, 255, 255, 0.02);
+        }
+
+        .brand-group {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .brand-badge {
+            width: 36px;
+            height: 36px;
+            border-radius: 10px;
+            background: linear-gradient(135deg, var(--primary-colour), var(--secondary-colour));
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-family: var(--font-display);
+            font-weight: 800;
+            font-size: 18px;
+            color: #ffffff;
+        }
+
+        .brand-title {
+            font-family: var(--font-display);
+            font-size: 20px;
+            font-weight: 800;
+            letter-spacing: 0.6px;
+            color: #ffffff;
+        }
+
+        .brand-subtitle {
+            font-family: var(--font-mono);
+            font-size: 11px;
+            color: #94a3b8;
+        }
+
+        /* Studio Navigation Tabs */
+        .studio-tabs {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            background: #060913;
+        }
+
+        .tab-btn {
+            padding: 12px 6px;
+            background: transparent;
+            border: none;
+            border-bottom: 2.5px solid transparent;
+            color: #94a3b8;
+            font-family: var(--font-sans);
+            font-size: 12px;
+            font-weight: 700;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .tab-btn:hover {
+            color: #f8fafc;
+            background: rgba(255, 255, 255, 0.03);
+        }
+
+        .tab-btn.tab-active {
+            color: var(--primary-colour);
+            border-bottom-color: var(--primary-colour);
+            background: rgba(var(--primary-rgb), 0.08);
+        }
+
+        /* Scrollable Tab Content Area */
+        .sidebar-scroll-body {
+            flex: 1;
+            overflow-y: auto;
+            padding: 18px 20px;
+        }
+
+        .sidebar-scroll-body::-webkit-scrollbar { width: 6px; }
+        .sidebar-scroll-body::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.2); border-radius: 99px; }
+
+        .tab-pane {
+            display: none;
+            flex-direction: column;
+            gap: 18px;
+        }
+
+        .tab-pane.pane-active {
+            display: flex;
+        }
+
+        .control-card {
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 14px;
+            padding: 14px 16px;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .card-heading {
+            font-family: var(--font-mono);
+            font-size: 11px;
+            font-weight: 800;
+            text-transform: uppercase;
+            letter-spacing: 1.4px;
+            color: var(--primary-colour);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+        .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
+
+        .ctrl-btn {
+            padding: 9px 12px;
+            border-radius: 9px;
+            border: 1px solid rgba(255, 255, 255, 0.14);
+            background: rgba(255, 255, 255, 0.05);
+            color: #f1f5f9;
+            font-family: var(--font-sans);
+            font-size: 12px;
+            font-weight: 700;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+            transition: all 0.18s ease;
+        }
+
+        .ctrl-btn:hover {
+            border-color: var(--primary-colour);
+            background: rgba(var(--primary-rgb), 0.18);
+        }
+
+        .ctrl-btn.btn-selected {
+            border-color: var(--primary-colour);
+            background: rgba(var(--primary-rgb), 0.26);
+            color: #ffffff;
+            box-shadow: 0 0 14px rgba(var(--primary-rgb), 0.3);
+        }
+
+        .slider-row {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+
+        .slider-top {
+            display: flex;
+            justify-content: space-between;
+            font-size: 12px;
+            font-weight: 600;
+            color: #cbd5e1;
+        }
+
+        .slider-val {
+            font-family: var(--font-mono);
+            font-size: 11.5px;
+            color: var(--primary-colour);
+            font-weight: 700;
+        }
+
+        input[type="range"] {
+            width: 100%;
+            accent-color: var(--primary-colour);
+            cursor: pointer;
+            height: 6px;
+        }
+
+        .text-input {
+            width: 100%;
+            padding: 8px 11px;
+            border-radius: 8px;
+            border: 1px solid rgba(255, 255, 255, 0.16);
+            background: #05070f;
+            color: #ffffff;
+            font-family: var(--font-sans);
+            font-size: 13px;
+            font-weight: 600;
+            outline: none;
+        }
+
+        .text-input:focus {
+            border-color: var(--primary-colour);
+        }
+
+        .colour-box {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 6px 10px;
+            border-radius: 9px;
+            background: #05070f;
+            border: 1px solid rgba(255, 255, 255, 0.14);
+        }
+
+        .colour-box input[type="color"] {
+            -webkit-appearance: none;
+            border: none;
+            width: 26px;
+            height: 26px;
+            border-radius: 6px;
+            cursor: pointer;
+            background: transparent;
+        }
+
+        .switch-label {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 8px 10px;
+            border-radius: 8px;
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+        }
+
+        .switch-label input[type="checkbox"] {
+            accent-color: var(--primary-colour);
+            width: 16px;
+            height: 16px;
+            cursor: pointer;
+        }
+
+        /* Sidebar Footer Export Actions */
+        .sidebar-footer {
+            padding: 14px 20px;
+            border-top: 1px solid rgba(255, 255, 255, 0.12);
+            background: #050811;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .btn-primary-export {
+            width: 100%;
+            padding: 12px 16px;
+            border-radius: 11px;
+            border: 1px solid var(--primary-colour);
+            background: linear-gradient(135deg, var(--primary-colour), var(--secondary-colour));
+            color: #ffffff;
+            font-family: var(--font-display);
+            font-size: 16px;
+            font-weight: 800;
+            letter-spacing: 1px;
+            text-transform: uppercase;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            box-shadow: 0 8px 24px rgba(var(--primary-rgb), 0.4);
+            transition: all 0.2s ease;
+        }
+
+        .btn-primary-export:hover {
+            filter: brightness(1.1);
+            transform: translateY(-1px);
+        }
+
+        /* ==========================================================================
+           EXPORT HTML MODAL
+           ========================================================================== */
+        #export-modal {
+            position: fixed;
+            inset: 0;
+            background: rgba(3, 5, 12, 0.86);
+            backdrop-filter: blur(12px);
+            z-index: 400;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.25s ease;
+            padding: 20px;
+        }
+
+        #export-modal.modal-active {
+            opacity: 1;
+            pointer-events: auto;
+        }
+
+        .modal-dialog {
+            width: 100%;
+            max-width: 680px;
+            background: #0b0f1e;
+            border: 1px solid var(--primary-colour);
+            border-radius: 18px;
+            overflow: hidden;
+            box-shadow: 0 25px 80px rgba(0, 0, 0, 0.95);
+        }
+
+        .modal-top {
+            padding: 16px 22px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-family: var(--font-display);
+            font-size: 20px;
+            font-weight: 800;
+        }
+
+        .modal-content {
+            padding: 18px 22px;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .code-output-box {
+            width: 100%;
+            height: 230px;
+            background: #04060c;
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            border-radius: 10px;
+            padding: 12px;
+            color: #38bdf8;
+            font-family: var(--font-mono);
+            font-size: 11.5px;
+            resize: none;
+            outline: none;
+        }
+
+        .modal-bottom {
+            padding: 14px 22px;
+            border-top: 1px solid rgba(255, 255, 255, 0.1);
+            display: flex;
+            justify-content: flex-end;
+            gap: 10px;
+        }
+
+        /* Hide all editor UI when running inside TikTok LIVE Studio / OBS (?obs=true) */
+        body.obs-production-mode #studio-sidebar,
+        body.obs-production-mode #floating-reopen-btn,
+        body.obs-production-mode #export-modal,
+        body.obs-production-mode #reference-underlay,
+        body.obs-production-mode #tiktok-safe-zones {
+            display: none !important;
+        }
+    </style>
+</head>
+<body class="obs-production-mode">
+
+    <div class="workspace-shell">
+        
+        <!-- ======================================================================
+             LEFT VIEWPORT: SCALED 1080x1920 (9:16 VERTICAL) TIKTOK STUDIO STAGE
+             ====================================================================== -->
+        <main class="stage-viewport mode-pure-obs" id="stage-viewport">
+            
+            <div id="tiktok-stage" style="transform: scale(1);">
+                
+                <!-- LAYER 0: SIMULATED ROOM / UPLOADED SCREENSHOT UNDERLAY -->
+                <div id="reference-underlay" class="">
+                    <!-- Simulated Wide Webcam with Bedroom Background Clutter (Bed Left, Door Right, Cord Top) -->
+                    <div class="sim-webcam-room" id="sim-webcam-room" style="height: 557px;">
+                        <div class="sim-room-bed-left"></div>
+                        <div class="sim-room-door-right"></div>
+                        <div class="sim-room-cord-top"></div>
+                        <div class="sim-streamer-person">
+                            <div class="sim-streamer-head"></div>
+                            <div class="sim-streamer-shoulders">YOUR CAMERA CENTRE</div>
+                        </div>
+                    </div>
+                    <!-- Simulated Centre Gameplay Feed -->
+                    <div class="sim-game-feed" id="sim-game-feed" style="top: 697px; height: 596px;">
+                        <div class="sim-game-crosshair"></div>
+                        <div class="sim-game-label">1080x605 Gameplay Viewport Cutout</div>
+                    </div>
+                    <!-- User Uploaded Reference Screenshot (Replaces simulation when uploaded) -->
+                    <img id="uploaded-ref-img" alt="Custom Stream Screenshot Reference" style="display: block;">
+                </div>
+
+                <!-- LAYER 1: DYNAMIC CAMERA PRIVACY BUNKER & SHUTTER MASK CANVAS -->
+                <canvas id="camera-mask-layer" width="1080" height="1920"></canvas>
+
+                <!-- OPTIONAL CYBERPUNK HUD PANELS ON THE MASKED LEFT & RIGHT BEDROOM WINGS -->
+                <div class="privacy-wing-hud" id="hud-wing-left" style="display: flex; left: 12px; top: 145px; width: 286px; height: 535px;">
+                    <div class="wing-hud-card">
+                        <div class="wing-tag"><span class="wing-tag-dot"></span><span>SYS // L-WING</span></div>
+                        <div class="wing-equaliser">
+                            <div class="eq-bar" style="animation-delay: 0.0s;"></div>
+                            <div class="eq-bar" style="animation-delay: 0.2s;"></div>
+                            <div class="eq-bar" style="animation-delay: 0.4s;"></div>
+                            <div class="eq-bar" style="animation-delay: 0.1s;"></div>
+                            <div class="eq-bar" style="animation-delay: 0.3s;"></div>
+                            <div class="eq-bar" style="animation-delay: 0.5s;"></div>
+                        </div>
+                        <div class="wing-stat-block">
+                            <span class="wing-stat-label">Privacy Shield</span>
+                            <span class="wing-stat-val" id="wing-left-label">AUTISM</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="privacy-wing-hud" id="hud-wing-right" style="display: flex; left: 782px; top: 145px; width: 286px; height: 535px;">
+                    <div class="wing-hud-card">
+                        <div class="wing-tag"><span class="wing-tag-dot"></span><span>HUD // R-WING</span></div>
+                        <div class="wing-equaliser">
+                            <div class="eq-bar" style="animation-delay: 0.3s;"></div>
+                            <div class="eq-bar" style="animation-delay: 0.1s;"></div>
+                            <div class="eq-bar" style="animation-delay: 0.5s;"></div>
+                            <div class="eq-bar" style="animation-delay: 0.2s;"></div>
+                            <div class="eq-bar" style="animation-delay: 0.4s;"></div>
+                            <div class="eq-bar" style="animation-delay: 0.0s;"></div>
+                        </div>
+                        <div class="wing-stat-block">
+                            <span class="wing-stat-label">Audio Telemetry</span>
+                            <span class="wing-stat-val" id="wing-right-label">ADHD</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- LAYER 2: ZONE DIVIDERS & BOTTOM SANCTUARY DECK -->
+                <div id="zone-divider-top" style="top: 693px;"></div>
+                <div id="zone-divider-bottom" style="top: 1289px;"></div>
+
+                <div id="bottom-deck-plate" style="top: 1293px; height: 627px;">
+                    <div class="deck-pattern-layer" id="deck-pattern-layer"></div>
+                    <!-- Decorative Cyber Circuit Traces at the bottom of the deck -->
+                    <svg class="deck-cyber-wings" viewBox="0 0 1080 220" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <path d="M0 190 H240 L290 140 H410" stroke="var(--primary-colour)" stroke-width="3" opacity="0.7"></path>
+                        <path d="M0 205 H280 L320 165 H390" stroke="var(--secondary-colour)" stroke-width="2" opacity="0.5"></path>
+                        <path d="M1080 190 H840 L790 140 H670" stroke="var(--primary-colour)" stroke-width="3" opacity="0.7"></path>
+                        <path d="M1080 205 H800 L760 165 H690" stroke="var(--secondary-colour)" stroke-width="2" opacity="0.5"></path>
+                        <circle cx="410" cy="140" r="5" fill="var(--primary-colour)"></circle>
+                        <circle cx="670" cy="140" r="5" fill="var(--primary-colour)"></circle>
+                    </svg>
+                </div>
+
+                <!-- LAYER 3: DRAGGABLE & CUSTOMISABLE MODULAR WIDGETS -->
+                
+                <!-- WIDGET A: GOAL BAR -->
+                <div class="overlay-widget widget-hidden" id="widget-goal" data-widget="goal" style="left: 27px; top: 1254px;">
+                    <div class="cyber-panel goal-box">
+                        <div class="goal-header">
+                            <div class="goal-title-text">
+                                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--primary-colour)" stroke-width="2.5">
+                                    <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon>
+                                </svg>
+                                <span id="display-goal-title">Follower Goal</span>
+                            </div>
+                            <div class="goal-metrics">
+                                <span><strong id="display-goal-cur" style="color: var(--primary-colour);">5,697</strong> / <span id="display-goal-max">10,000</span></span>
+                                <span class="goal-pct-badge" id="display-goal-pct">57%</span>
+                            </div>
+                        </div>
+                        <div class="goal-track">
+                            <div class="goal-fill" id="goal-fill-bar" style="width: 57%;"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- WIDGET B: FLOATING HEART & TAP COUNTER -->
+                <div class="overlay-widget widget-hidden" id="widget-likes" data-widget="likes" style="left: 708px; top: 1258px;">
+                    <div id="floating-hearts-container"></div>
+                    <div class="cyber-panel likes-box" id="likes-card-inner">
+                        <div class="likes-left">
+                            <div class="heart-icon-pill">
+                                <svg width="26" height="26" viewBox="0 0 24 24" fill="currentColor">
+                                    <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"></path>
+                                </svg>
+                            </div>
+                            <div>
+                                <div class="likes-sub-label">Stream Taps</div>
+                                <div class="likes-count-val" id="display-likes-count">25,264</div>
+                            </div>
+                        </div>
+                        <div class="combo-badge" id="display-combo-badge">LIVE</div>
+                    </div>
+                </div>
+
+                <!-- WIDGET C: ANIMATED CHAT FEED -->
+                <div class="overlay-widget widget-hidden" id="widget-chat" data-widget="chat" style="left: 24px; top: 1387px;">
+                    <div class="cyber-panel chat-box-panel">
+                        <div class="chat-box-header">
+                            <span>Live Chat Stream</span>
+                            <span style="font-family: var(--font-mono); font-size: 11px; color: #94a3b8;">SYNCED // 60FPS</span>
+                        </div>
+                        <div class="chat-feed-stream" id="chat-feed-stream"><div class="chat-row"><span class="chat-user-tag" style="color:#fbbf24">LunarEclipse:</span><span>W stream Lord Jason! Locked in tonight!</span></div><div class="chat-row"><span class="chat-user-tag" style="color:#f43f5e">PixelValkyrie:</span><span>Galaxy gift incoming!! 🚀🌌</span></div><div class="chat-row"><span class="chat-user-tag" style="color:#38bdf8">VortexSniperUK:</span><span>W stream Lord Jason! Locked in tonight!</span></div><div class="chat-row"><span class="chat-user-tag" style="color:#60a5fa">NeonGhost_GG:</span><span>W stream Lord Jason! Locked in tonight!</span></div><div class="chat-row"><span class="chat-user-tag" style="color:#60a5fa">NeonGhost_GG:</span><span>How did you clutch that round?! Insane aim!</span></div></div>
+                    </div>
+                </div>
+
+                <!-- WIDGET D: RECENT EVENTS TICKER -->
+                <div class="overlay-widget widget-hidden" id="widget-events" data-widget="events" style="left: 717px; top: 1418px;">
+                    <div class="events-stack" id="events-stack"><div class="event-pill-card">
+                    <div>
+                        <div class="event-pill-user">PixelValkyrie</div>
+                        <div class="event-pill-type">Followed the stream</div>
+                    </div>
+                    <span style="font-family:var(--font-mono);font-size:11px;color:#94a3b8;">NOW</span>
+                </div><div class="event-pill-card">
+                    <div>
+                        <div class="event-pill-user">ApexPredator_TT</div>
+                        <div class="event-pill-type">Followed the stream</div>
+                    </div>
+                    <span style="font-family:var(--font-mono);font-size:11px;color:#94a3b8;">NOW</span>
+                </div><div class="event-pill-card">
+                    <div>
+                        <div class="event-pill-user">LunarEclipse</div>
+                        <div class="event-pill-type">Followed the stream</div>
+                    </div>
+                    <span style="font-family:var(--font-mono);font-size:11px;color:#94a3b8;">NOW</span>
+                </div><div class="event-pill-card">
+                    <div>
+                        <div class="event-pill-user">NeonGhost_GG</div>
+                        <div class="event-pill-type">Followed the stream</div>
+                    </div>
+                    <span style="font-family:var(--font-mono);font-size:11px;color:#94a3b8;">NOW</span>
+                </div></div>
+                </div>
+
+                <!-- WIDGET E: STREAMING LIVE FOOTER BANNER -->
+                <div class="overlay-widget" id="widget-footer-banner" data-widget="footer" style="left: 190px; top: 1695px;">
+                    <div class="cyber-footer-banner">
+                        <div class="footer-headline" id="display-footer-headline">STREAMING LIVE</div>
+                        <div class="footer-subline" id="display-footer-subline">LORD JASON FABLE // INTERACTIVE SESSIONS</div>
+                    </div>
+                </div>
+
+                <!-- LAYER 4: PARTICLE EXPLOSION CANVAS & GIFT ALERT MODAL -->
+                <canvas id="fx-canvas" width="1080" height="1920"></canvas>
+
+                <div id="widget-gift-alert">
+                    <div class="gift-alert-modal" id="gift-alert-modal">
+                        <div class="alert-tag-pill" id="alert-tier-tag">MEGA GIFT DROP</div>
+                        <div id="alert-icon-holder" style="margin-bottom: 10px;"></div>
+                        <div class="alert-user-title" id="alert-sender-title">CyberSamurai99</div>
+                        <div class="alert-gift-sub" id="alert-gift-sub">sent a <strong>Galaxy Gift</strong>!</div>
+                    </div>
+                </div>
+
+                <!-- LAYER 5: TIKTOK NATIVE UI SAFE-ZONE OVERLAY (Matches User Screenshot) -->
+                <div id="tiktok-safe-zones" class="">
+                    <div class="tt-safe-pill tt-host-pill">
+                        <div class="tt-host-avatar"></div>
+                        <div>
+                            <div style="font-size: 20px; font-weight: 800;" id="safe-zone-handle">Lord Jason Fable</div>
+                            <div style="font-size: 12px; color: #94a3b8;">TikTok Top Header Safe Zone</div>
+                        </div>
+                    </div>
+                    <div class="tt-safe-pill tt-ranking-pill">
+                        <span>🎮 Gaming Ranking (Safe Guide)</span>
+                    </div>
+                    <div class="tt-safe-pill tt-viewers-pill">
+                        <span>VIEWER BUBBLES</span>
+                    </div>
+                    <div class="tt-bottom-bar">
+                        <div class="tt-icon-circles">
+                            <div class="tt-circle"></div>
+                            <div class="tt-circle"></div>
+                        </div>
+                        <span>TIKTOK NATIVE BOTTOM BAR SAFE ZONE (Y: 1810 - 1920)</span>
+                        <div class="tt-icon-circles">
+                            <div class="tt-circle"></div>
+                            <div class="tt-circle"></div>
+                            <div class="tt-circle"></div>
+                        </div>
+                    </div>
+                </div>
+
+            </div><!-- /#tiktok-stage -->
+
+        </main>
+
+        <!-- ======================================================================
+             RIGHT SIDEBAR: UNLIMITED CAMERA MASKING & STUDIO GENERATOR
+             ====================================================================== -->
+        <aside id="studio-sidebar" class="">
+            <div class="sidebar-top-header">
+                <div class="brand-group">
+                    <div class="brand-badge">9:16</div>
+                    <div>
+                        <div class="brand-title">TikTok Studio Architect</div>
+                        <div class="brand-subtitle">1080x1920 Vertical Mask &amp; Overlay Engine</div>
+                    </div>
+                </div>
+                <button class="ctrl-btn" id="btn-collapse-sidebar" title="Hide Controls (Shortcut: H)">Hide (H)</button>
+            </div>
+
+            <!-- 4-Tab Navigation -->
+            <nav class="studio-tabs">
+                <button class="tab-btn tab-active" data-tab="tab-camera">1. Cam Mask</button>
+                <button class="tab-btn" data-tab="tab-zones">2. Zones &amp; Deck</button>
+                <button class="tab-btn" data-tab="tab-widgets">3. Widgets</button>
+                <button class="tab-btn" data-tab="tab-theme">4. Theme &amp; Sim</button>
+            </nav>
+
+            <div class="sidebar-scroll-body">
+                
+                <!-- ==============================================================
+                     TAB 1: CAMERA PRIVACY MASK & BACKGROUND HIDER (NO LIMITS)
+                     ============================================================== -->
+                <div class="tab-pane pane-active" id="tab-camera">
+                    
+                    <!-- Reference Screenshot Uploader -->
+                    <div class="control-card">
+                        <div class="card-heading">
+                            <span>Reference Screenshot Underlay</span>
+                        </div>
+                        <p style="font-size: 11.5px; color: #94a3b8; line-height: 1.4;">
+                            Upload your exact TikTok Studio screenshot to align the privacy shutters directly around yourself and block your bedroom background to the millimetre.
+                        </p>
+                        <div class="grid-2">
+                            <label class="ctrl-btn btn-selected" style="cursor: pointer;">
+                                <span>Upload Screenshot</span>
+                                <input type="file" id="input-upload-ref" accept="image/*" style="display: none;">
+                            </label>
+                            <button class="ctrl-btn" id="btn-reset-ref">Use Simulated Room</button>
+                        </div>
+                        <label class="switch-label">
+                            <span>Show TikTok UI Safe-Zone Guides</span>
+                            <input type="checkbox" id="toggle-safe-zones" checked="">
+                        </label>
+                    </div>
+
+                    <!-- Quick Privacy Bunker Presets -->
+                    <div class="control-card">
+                        <div class="card-heading">
+                            <span>Quick Background Hider Presets</span>
+                        </div>
+                        <div class="grid-2">
+                            <button class="ctrl-btn btn-selected" id="preset-bunker-tight">Tight Portrait Bunker</button>
+                            <button class="ctrl-btn" id="preset-pod-circle">Cyber Circle Pod</button>
+                            <button class="ctrl-btn" id="preset-hex-portal">Hexagon Core</button>
+                            <button class="ctrl-btn" id="preset-wide-cinema">Wide Crop</button>
+                        </div>
+                    </div>
+
+                    <!-- Camera Cutout Shape Selector -->
+                    <div class="control-card">
+                        <div class="card-heading">
+                            <span>Camera Aperture Cutout Shape</span>
+                        </div>
+                        <div class="grid-3">
+                            <button class="ctrl-btn" data-shape="chamfer">Cyber Octagon</button>
+                            <button class="ctrl-btn" data-shape="rounded">Rounded Box</button>
+                            <button class="ctrl-btn" data-shape="circle">Circle / Oval</button>
+                            <button class="ctrl-btn" data-shape="hexagon">Hex Portal</button>
+                            <button class="ctrl-btn btn-selected" data-shape="arch">Cyber Arch</button>
+                            <button class="ctrl-btn" data-shape="diamond">Diamond</button>
+                        </div>
+                    </div>
+
+                    <!-- 4-Side Independent Background Privacy Shutters -->
+                    <div class="control-card">
+                        <div class="card-heading">
+                            <span>4-Side Background Privacy Crop</span>
+                            <span style="color: #94a3b8; font-size: 10px;">COVERS BED / DOOR / CORD</span>
+                        </div>
+
+                        <div class="slider-row">
+                            <div class="slider-top">
+                                <span>Left Privacy Shutter (Covers Bed)</span>
+                                <span class="slider-val" id="val-crop-left">306px</span>
+                            </div>
+                            <input type="range" id="slider-crop-left" min="0" max="500" value="275">
+                        </div>
+
+                        <div class="slider-row">
+                            <div class="slider-top">
+                                <span>Right Privacy Shutter (Covers Door)</span>
+                                <span class="slider-val" id="val-crop-right">306px</span>
+                            </div>
+                            <input type="range" id="slider-crop-right" min="0" max="500" value="275">
+                        </div>
+
+                        <div class="slider-row">
+                            <div class="slider-top">
+                                <span>Top Ceiling Mask (Covers Light Cord)</span>
+                                <span class="slider-val" id="val-crop-top">119px</span>
+                            </div>
+                            <input type="range" id="slider-crop-top" min="0" max="550" value="215">
+                        </div>
+
+                        <div class="slider-row">
+                            <div class="slider-top">
+                                <span>Bottom Camera Edge Y</span>
+                                <span class="slider-val" id="val-crop-bottom">654px</span>
+                            </div>
+                            <input type="range" id="slider-crop-bottom" min="300" max="900" value="645">
+                        </div>
+
+                        <div class="slider-row">
+                            <div class="slider-top">
+                                <span>Corner Radius / Chamfer Cut</span>
+                                <span class="slider-val" id="val-cam-radius">57px</span>
+                            </div>
+                            <input type="range" id="slider-cam-radius" min="0" max="260" value="48">
+                        </div>
+
+                        <div class="slider-row">
+                            <div class="slider-top">
+                                <span>Inner Edge Vignette Shadow (Blends Room)</span>
+                                <span class="slider-val" id="val-cam-vignette">60px</span>
+                            </div>
+                            <input type="range" id="slider-cam-vignette" min="0" max="160" value="55">
+                        </div>
+
+                        <div class="slider-row">
+                            <div class="slider-top">
+                                <span>Privacy Mask Opacity</span>
+                                <span class="slider-val" id="val-mask-opacity">100%</span>
+                            </div>
+                            <input type="range" id="slider-mask-opacity" min="40" max="100" value="98">
+                        </div>
+                    </div>
+
+                    <!-- Side Wing Cyberpunk HUD Panels (Fills the Masked Left/Right Space) -->
+                    <div class="control-card">
+                        <div class="card-heading">
+                            <span>Side Wing HUD Panels (Over Masked Room)</span>
+                        </div>
+                        <label class="switch-label">
+                            <span>Display Cyber HUD Wings Over Masked Sides</span>
+                            <input type="checkbox" id="toggle-wing-hud" checked="">
+                        </label>
+                        <div class="grid-2">
+                            <div>
+                                <div class="slider-top" style="margin-bottom: 4px;"><span>Left Wing Text</span></div>
+                                <input type="text" class="text-input" id="input-wing-left" value="LOCKED">
+                            </div>
+                            <div>
+                                <div class="slider-top" style="margin-bottom: 4px;"><span>Right Wing Text</span></div>
+                                <input type="text" class="text-input" id="input-wing-right" value="ONLINE">
+                            </div>
+                        </div>
+                    </div>
+
+                </div><!-- /#tab-camera -->
+
+                <!-- ==============================================================
+                     TAB 2: VERTICAL ZONES & BOTTOM DECK ARCHITECT
+                     ============================================================== -->
+                <div class="tab-pane" id="tab-zones">
+                    
+                    <div class="control-card">
+                        <div class="card-heading">
+                            <span>3-Tier Vertical Split Coordinates</span>
+                        </div>
+                        <p style="font-size: 11.5px; color: #94a3b8; line-height: 1.4;">
+                            Adjust the exact Y-axis split between your Top Camera Zone, Centre Gameplay Viewport, and Bottom Chat Deck.
+                        </p>
+
+                        <div class="slider-row">
+                            <div class="slider-top">
+                                <span>Top Camera / Game Split Line (Y1)</span>
+                                <span class="slider-val" id="val-zone-y1">697px</span>
+                            </div>
+                            <input type="range" id="slider-zone-y1" min="350" max="950" value="665">
+                        </div>
+
+                        <div class="slider-row">
+                            <div class="slider-top">
+                                <span>Centre Game / Bottom Deck Split (Y2)</span>
+                                <span class="slider-val" id="val-zone-y2">1293px</span>
+                            </div>
+                            <input type="range" id="slider-zone-y2" min="850" max="1650" value="1270">
+                        </div>
+
+                        <div class="slider-row">
+                            <div class="slider-top">
+                                <span>Bottom Deck Plate Opacity</span>
+                                <span class="slider-val" id="val-deck-opacity">100%</span>
+                            </div>
+                            <input type="range" id="slider-deck-opacity" min="0" max="100" value="94">
+                        </div>
+                    </div>
+
+                    <div class="control-card">
+                        <div class="card-heading">
+                            <span>Canvas Preview Mode</span>
+                        </div>
+                        <div class="grid-3">
+                            <button class="ctrl-btn btn-selected" data-viewmode="simulated">Room + Game</button>
+                            <button class="ctrl-btn" data-viewmode="grid">Alpha Grid</button>
+                            <button class="ctrl-btn" data-viewmode="pure">Pure Alpha</button>
+                        </div>
+                    </div>
+
+                    <div class="control-card">
+                        <div class="card-heading">
+                            <span>Bottom Banner Headlines</span>
+                        </div>
+                        <div>
+                            <div class="slider-top" style="margin-bottom: 4px;"><span>Main Glowing Headline</span></div>
+                            <input type="text" class="text-input" id="input-footer-main" value="STREAMING LIVE">
+                        </div>
+                        <div>
+                            <div class="slider-top" style="margin-bottom: 4px;"><span>Subtitle / Handle Line</span></div>
+                            <input type="text" class="text-input" id="input-footer-sub" value="LORD JASON FABLE // INTERACTIVE SESSIONS">
+                        </div>
+                    </div>
+
+                </div><!-- /#tab-zones -->
+
+                <!-- ==============================================================
+                     TAB 3: MODULAR WIDGETS & FREEFORM PLACEMENT
+                     ============================================================== -->
+                <div class="tab-pane" id="tab-widgets">
+                    
+                    <div class="control-card">
+                        <div class="card-heading">
+                            <span>Drag Widgets Directly on Stage</span>
+                        </div>
+                        <p style="font-size: 11.5px; color: #94a3b8; line-height: 1.4;">
+                            Tip: You can click and drag any widget directly on the 9:16 stage to reposition it anywhere, or toggle individual modules below.
+                        </p>
+                        <button class="ctrl-btn" id="btn-reset-widgets">Reset Widget Positions to Default Deck</button>
+                    </div>
+
+                    <div class="control-card">
+                        <div class="card-heading">
+                            <span>Active Overlay Modules</span>
+                        </div>
+                        <label class="switch-label">
+                            <span>Goal Progress Bar</span>
+                            <input type="checkbox" checked="" data-widget-toggle="widget-goal">
+                        </label>
+                        <label class="switch-label">
+                            <span>Floating Heart &amp; Tap Counter</span>
+                            <input type="checkbox" checked="" data-widget-toggle="widget-likes">
+                        </label>
+                        <label class="switch-label">
+                            <span>Live Scrolling Chat Box</span>
+                            <input type="checkbox" checked="" data-widget-toggle="widget-chat">
+                        </label>
+                        <label class="switch-label">
+                            <span>Recent Events Ticker Stack</span>
+                            <input type="checkbox" checked="" data-widget-toggle="widget-events">
+                        </label>
+                        <label class="switch-label">
+                            <span>Streaming Live Cyber Footer Banner</span>
+                            <input type="checkbox" checked="" data-widget-toggle="widget-footer-banner">
+                        </label>
+                    </div>
+
+                    <div class="control-card">
+                        <div class="card-heading">
+                            <span>Goal Bar Configuration</span>
+                        </div>
+                        <div>
+                            <div class="slider-top" style="margin-bottom: 4px;"><span>Goal Title</span></div>
+                            <input type="text" class="text-input" id="input-goal-title" value="Follower Goal">
+                        </div>
+                        <div class="grid-2">
+                            <div>
+                                <div class="slider-top" style="margin-bottom: 4px;"><span>Current Value</span></div>
+                                <input type="number" class="text-input" id="input-goal-cur" value="680">
+                            </div>
+                            <div>
+                                <div class="slider-top" style="margin-bottom: 4px;"><span>Target Goal</span></div>
+                                <input type="number" class="text-input" id="input-goal-max" value="1000">
+                            </div>
+                        </div>
+                    </div>
+
+                </div><!-- /#tab-widgets -->
+
+                <!-- ==============================================================
+                     TAB 4: CYBERPUNK COLOUR ENGINE & EVENT SIMULATOR
+                     ============================================================== -->
+                <div class="tab-pane" id="tab-theme">
+                    
+                    <div class="control-card">
+                        <div class="card-heading">
+                            <span>Neon Colour &amp; Shutter Palette</span>
+                        </div>
+                        <div class="grid-3">
+                            <div class="colour-box">
+                                <input type="color" id="colour-primary" value="#06b6d4">
+                                <div>
+                                    <div style="font-size: 10px; color: #94a3b8;">Primary</div>
+                                    <div id="label-col-p" style="font-family: var(--font-mono); font-size: 11px;">#F43F5E</div>
+                                </div>
+                            </div>
+                            <div class="colour-box">
+                                <input type="color" id="colour-secondary" value="#8b5cf6">
+                                <div>
+                                    <div style="font-size: 10px; color: #94a3b8;">Secondary</div>
+                                    <div id="label-col-s" style="font-family: var(--font-mono); font-size: 11px;">#F59E0B</div>
+                                </div>
+                            </div>
+                            <div class="colour-box">
+                                <input type="color" id="colour-shutter" value="#070913">
+                                <div>
+                                    <div style="font-size: 10px; color: #94a3b8;">Mask Plate</div>
+                                    <div id="label-col-bg" style="font-family: var(--font-mono); font-size: 11px;">#1C1F31</div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="grid-2" style="margin-top: 4px;">
+                            <button class="ctrl-btn" data-theme-p="#06b6d4" data-theme-s="#8b5cf6">Cyan // Violet</button>
+                            <button class="ctrl-btn" data-theme-p="#f43f5e" data-theme-s="#f59e0b">Crimson // Gold</button>
+                            <button class="ctrl-btn" data-theme-p="#10b981" data-theme-s="#06b6d4">Emerald // Matrix</button>
+                            <button class="ctrl-btn" data-theme-p="#ec4899" data-theme-s="#3b82f6">Pink // Cobalt</button>
+                        </div>
+
+                        <div class="slider-row">
+                            <div class="slider-top">
+                                <span>Camera Frame Border Thickness</span>
+                                <span class="slider-val" id="val-border-w">12px</span>
+                            </div>
+                            <input type="range" id="slider-border-w" min="1" max="12" value="4">
+                        </div>
+                    </div>
+
+                    <div class="control-card">
+                        <div class="card-heading">
+                            <span>Live Event &amp; Alert Simulator</span>
+                        </div>
+                        <div class="grid-2">
+                            <button class="ctrl-btn" id="sim-btn-chat">Test Chat Msg</button>
+                            <button class="ctrl-btn" id="sim-btn-likes">Burst 50 Likes</button>
+                            <button class="ctrl-btn" id="sim-btn-follow">Test Follower</button>
+                            <button class="ctrl-btn" id="sim-btn-galaxy">Test Galaxy Gift</button>
+                        </div>
+                        <label class="switch-label">
+                            <span>Auto-Pilot Stream Simulation</span>
+                            <input type="checkbox" id="toggle-autopilot" checked="">
+                        </label>
+                        <label class="switch-label">
+                            <span>Futuristic Web Audio Synth SFX</span>
+                            <input type="checkbox" id="toggle-sound" checked="">
+                        </label>
+                    </div>
+
+                </div><!-- /#tab-theme -->
+
+            </div><!-- /.sidebar-scroll-body -->
+
+            <!-- Dual Export Footer -->
+            <div class="sidebar-footer">
+                <button class="btn-primary-export" id="btn-export-html">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4">
+                        <polyline points="16 18 22 12 16 6"></polyline>
+                        <polyline points="8 6 2 12 8 18"></polyline>
+                    </svg>
+                    <span>Copy TikTok Studio / OBS HTML</span>
+                </button>
+                <button class="ctrl-btn" id="btn-export-png" style="width: 100%; padding: 10px;">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                        <polyline points="7 10 12 15 17 10"></polyline>
+                        <line x1="12" y1="15" x2="12" y2="3"></line>
+                    </svg>
+                    <span>Download 1080x1920 Transparent PNG Frame</span>
+                </button>
+            </div>
+        </aside>
+
+        <!-- Re-open Sidebar Button when hidden -->
+        <button id="floating-reopen-btn">
+            <span>Open Studio Architect (H)</span>
+        </button>
+
+    </div><!-- /.workspace-shell -->
+
+    <!-- ==========================================================================
+         STANDALONE HTML EXPORT MODAL
+         ========================================================================== -->
+    <div id="export-modal" class="">
+        <div class="modal-dialog">
+            <div class="modal-top">
+                <span>TikTok LIVE Studio / OBS 1080x1920 Browser Source Code</span>
+                <button class="ctrl-btn" id="btn-close-modal">Close</button>
+            </div>
+            <div class="modal-content">
+                <p style="font-size: 12.5px; color: #cbd5e1; line-height: 1.5; background: rgba(var(--primary-rgb), 0.12); border: 1px solid var(--primary-colour); padding: 10px 14px; border-radius: 10px;">
+                    <strong>How to load into TikTok LIVE Studio or OBS:</strong> Copy the standalone code below, save it as <code>tiktok_vertical_overlay.html</code>, and add it as a Browser Source / Web Link set to Width <code>1080</code> and Height <code>1920</code>. Your exact camera privacy shutter cutout and gameplay viewport will be 100% transparent so your camera and game sit cleanly underneath!
+                </p>
+                <textarea class="code-output-box" id="export-textarea" readonly=""></textarea>
+            </div>
+            <div class="modal-bottom">
+                <button class="btn-primary-export" id="btn-copy-clipboard" style="width: auto; padding: 10px 22px;">
+                    <span id="copy-status-text">Copy Full 1080x1920 HTML to Clipboard</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        /* ==========================================================================
+           TIKTOK LIVE STUDIO 9:16 VERTICAL ARCHITECT & PRIVACY MASK ENGINE
+           ========================================================================== */
+        (function () {
+            'use strict';
+
+            // --- Master Configuration State (No Limits) ---
+            const config = {
+                // Camera Cutout & Privacy Mask Coordinates (within 1080x1920 canvas)
+                camShape: 'chamfer', // 'chamfer', 'rounded', 'circle', 'hexagon', 'arch', 'diamond'
+                cropLeft: 275,       // Masks left bedroom background (bed)
+                cropRight: 275,      // Masks right bedroom background (door)
+                cropTop: 215,        // Masks top ceiling light cord
+                cropBottom: 645,     // Bottom edge of camera aperture
+                camRadius: 48,       // Corner radius or chamfer size
+                camVignette: 55,     // Soft inner shadow feathering around streamer
+                maskOpacity: 0.98,   // Opacity of the privacy shutter around camera
+
+                // 3-Tier Vertical Split Y Coordinates
+                zoneY1: 665,         // Split between Top Camera Zone and Centre Gameplay
+                zoneY2: 1270,        // Split between Centre Gameplay and Bottom Sanctuary Deck
+                deckOpacity: 0.94,   // Opacity of bottom chat deck plate
+
+                // Theme & Styling
+                primaryColour: '#06b6d4',
+                secondaryColour: '#8b5cf6',
+                shutterColour: '#070913',
+                borderWidth: 4,
+                showWingHud: true,
+
+                // Stream Metrics & Simulation
+                goalTitle: 'Follower Goal',
+                goalCur: 680,
+                goalMax: 1000,
+                likesCount: 24850,
+                autoPilot: true,
+                soundEnabled: true,
+                isObsMode: new URLSearchParams(window.location.search).get('obs') === 'true'
+            };
+
+            if (config.isObsMode) {
+                document.body.classList.add('obs-production-mode');
+                document.getElementById('stage-viewport').className = 'stage-viewport mode-pure-obs';
+            }
+
+            // ==========================================================================
+            // RESPONSIVE 9:16 (1080x1920) STAGE SCALER
+            // ==========================================================================
+            const stageEl = document.getElementById('tiktok-stage');
+            const viewportEl = document.getElementById('stage-viewport');
+            let currentStageScale = 1;
+
+            function fitVerticalStage() {
+                if (window.innerWidth === 1080 && window.innerHeight === 1920) {
+                    currentStageScale = 1;
+                    stageEl.style.transform = 'scale(1)';
+                    return;
+                }
+                const rect = viewportEl.getBoundingClientRect();
+                const scaleX = (rect.width - 36) / 1080;
+                const scaleY = (rect.height - 36) / 1920;
+                currentStageScale = Math.max(0.15, Math.min(scaleX, scaleY));
+                stageEl.style.transform = `scale(${currentStageScale.toFixed(4)})`;
+            }
+            window.addEventListener('resize', fitVerticalStage);
+            fitVerticalStage();
+
+            // ==========================================================================
+            // CAMERA PRIVACY BUNKER & APERTURE PATH GENERATOR (CANVAS 2D)
+            // ==========================================================================
+            const maskCanvas = document.getElementById('camera-mask-layer');
+            const maskCtx = maskCanvas.getContext('2d');
+            const hudLeft = document.getElementById('hud-wing-left');
+            const hudRight = document.getElementById('hud-wing-right');
+
+            function hexToRgbObj(hex) {
+                const clean = hex.replace('#', '');
+                const num = parseInt(clean, 16);
+                return {
+                    r: (num >> 16) & 255,
+                    g: (num >> 8) & 255,
+                    b: num & 255
+                };
+            }
+
+            // Trace the custom camera aperture path onto any 2D canvas context
+            function traceAperturePath(ctx, x, y, w, h, shape, radius) {
+                const cx = x + w / 2;
+                const cy = y + h / 2;
+                const maxR = Math.min(w, h) / 2;
+                const r = Math.min(radius, maxR);
+
+                ctx.beginPath();
+                if (shape === 'circle') {
+                    ctx.ellipse(cx, cy, w / 2, h / 2, 0, 0, Math.PI * 2);
+                } else if (shape === 'chamfer') {
+                    const c = Math.max(12, r);
+                    ctx.moveTo(x + c, y);
+                    ctx.lineTo(x + w - c, y);
+                    ctx.lineTo(x + w, y + c);
+                    ctx.lineTo(x + w, y + h - c);
+                    ctx.lineTo(x + w - c, y + h);
+                    ctx.lineTo(x + c, y + h);
+                    ctx.lineTo(x, y + h - c);
+                    ctx.lineTo(x, y + c);
+                    ctx.closePath();
+                } else if (shape === 'hexagon') {
+                    const inset = Math.min(w * 0.22, 110);
+                    ctx.moveTo(x + inset, y);
+                    ctx.lineTo(x + w - inset, y);
+                    ctx.lineTo(x + w, cy);
+                    ctx.lineTo(x + w - inset, y + h);
+                    ctx.lineTo(x + inset, y + h);
+                    ctx.lineTo(x, cy);
+                    ctx.closePath();
+                } else if (shape === 'arch') {
+                    const archR = Math.min(w / 2, h * 0.65);
+                    ctx.moveTo(x, y + h);
+                    ctx.lineTo(x, y + archR);
+                    ctx.arc(cx, y + archR, w / 2, Math.PI, 0, false);
+                    ctx.lineTo(x + w, y + h);
+                    ctx.closePath();
+                } else if (shape === 'diamond') {
+                    ctx.moveTo(cx, y);
+                    ctx.lineTo(x + w, cy);
+                    ctx.lineTo(cx, y + h);
+                    ctx.lineTo(x, cy);
+                    ctx.closePath();
+                } else {
+                    // Rounded Rectangle
+                    ctx.moveTo(x + r, y);
+                    ctx.arcTo(x + w, y, x + w, y + h, r);
+                    ctx.arcTo(x + w, y + h, x, y + h, r);
+                    ctx.arcTo(x, y + h, x, y, r);
+                    ctx.arcTo(x, y, x + w, y, r);
+                    ctx.closePath();
+                }
+            }
+
+            // Render the Top Camera Privacy Shutter, Vignette, and Glowing Neon Bunker Frame
+            function renderCameraMaskAndZones(targetCtx = maskCtx) {
+                targetCtx.clearRect(0, 0, 1080, 1920);
+
+                const x = config.cropLeft;
+                const y = config.cropTop;
+                const w = Math.max(80, 1080 - config.cropLeft - config.cropRight);
+                const h = Math.max(80, config.cropBottom - config.cropTop);
+                const zoneY1 = config.zoneY1;
+
+                const rgb = hexToRgbObj(config.shutterColour);
+
+                // 1. Fill Top Camera Zone (0 to zoneY1) with Privacy Mask Plate
+                targetCtx.save();
+                targetCtx.fillStyle = `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${config.maskOpacity})`;
+                targetCtx.fillRect(0, 0, 1080, zoneY1);
+
+                // Subtle Diagonal Cyber Grid Pattern on Privacy Shutters
+                targetCtx.strokeStyle = `rgba(${hexToRgbObj(config.primaryColour).r}, ${hexToRgbObj(config.primaryColour).g}, ${hexToRgbObj(config.primaryColour).b}, 0.08)`;
+                targetCtx.lineWidth = 1;
+                for (let gx = 0; gx < 1080; gx += 32) {
+                    targetCtx.beginPath();
+                    targetCtx.moveTo(gx, 0);
+                    targetCtx.lineTo(gx, zoneY1);
+                    targetCtx.stroke();
+                }
+                for (let gy = 0; gy < zoneY1; gy += 32) {
+                    targetCtx.beginPath();
+                    targetCtx.moveTo(0, gy);
+                    targetCtx.lineTo(1080, gy);
+                    targetCtx.stroke();
+                }
+
+                // 2. Punch out the transparent Camera Aperture Hole using destination-out
+                targetCtx.globalCompositeOperation = 'destination-out';
+                traceAperturePath(targetCtx, x, y, w, h, config.camShape, config.camRadius);
+                targetCtx.fillStyle = '#000000';
+                targetCtx.fill();
+                targetCtx.restore();
+
+                // 3. Soft Inner Edge Vignette / Feathering inside the Camera Aperture (hides room edges)
+                if (config.camVignette > 0) {
+                    targetCtx.save();
+                    traceAperturePath(targetCtx, x, y, w, h, config.camShape, config.camRadius);
+                    targetCtx.clip();
+
+                    targetCtx.strokeStyle = `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.95)`;
+                    targetCtx.lineWidth = config.camVignette * 1.4;
+                    targetCtx.shadowColor = config.shutterColour;
+                    targetCtx.shadowBlur = config.camVignette;
+                    traceAperturePath(targetCtx, x, y, w, h, config.camShape, config.camRadius);
+                    targetCtx.stroke();
+                    targetCtx.restore();
+                }
+
+                // 4. Glowing Neon Bunker Frame Around Camera Aperture
+                targetCtx.save();
+                traceAperturePath(targetCtx, x, y, w, h, config.camShape, config.camRadius);
+                const grad = targetCtx.createLinearGradient(x, y, x + w, y + h);
+                grad.addColorStop(0, config.primaryColour);
+                grad.addColorStop(0.5, config.secondaryColour);
+                grad.addColorStop(1, config.primaryColour);
+
+                targetCtx.strokeStyle = grad;
+                targetCtx.lineWidth = config.borderWidth;
+                targetCtx.shadowColor = config.primaryColour;
+                targetCtx.shadowBlur = 22;
+                targetCtx.stroke();
+
+                // Outer secondary tech line
+                targetCtx.lineWidth = 1.5;
+                targetCtx.strokeStyle = 'rgba(255, 255, 255, 0.45)';
+                targetCtx.shadowBlur = 0;
+                targetCtx.stroke();
+                targetCtx.restore();
+
+                // 5. Update Left & Right Wing HUD Panel Positions over the Masked Bedroom Areas
+                if (targetCtx === maskCtx) {
+                    updateWingHudPositions(x, y, w, h);
+                    updateZoneSplitElements();
+                }
+            }
+
+            function updateWingHudPositions(camX, camY, camW, camH) {
+                const leftSpace = camX;
+                const rightSpace = 1080 - (camX + camW);
+
+                if (config.showWingHud && leftSpace >= 135) {
+                    hudLeft.style.display = 'flex';
+                    hudLeft.style.left = '12px';
+                    hudLeft.style.top = `${Math.max(145, camY)}px`;
+                    hudLeft.style.width = `${leftSpace - 20}px`;
+                    hudLeft.style.height = `${Math.max(180, camH)}px`;
+                } else {
+                    hudLeft.style.display = 'none';
+                }
+
+                if (config.showWingHud && rightSpace >= 135) {
+                    hudRight.style.display = 'flex';
+                    hudRight.style.left = `${camX + camW + 8}px`;
+                    hudRight.style.top = `${Math.max(145, camY)}px`;
+                    hudRight.style.width = `${rightSpace - 20}px`;
+                    hudRight.style.height = `${Math.max(180, camH)}px`;
+                } else {
+                    hudRight.style.display = 'none';
+                }
+            }
+
+            function updateZoneSplitElements() {
+                const divTop = document.getElementById('zone-divider-top');
+                const divBottom = document.getElementById('zone-divider-bottom');
+                const deckPlate = document.getElementById('bottom-deck-plate');
+                const simRoom = document.getElementById('sim-webcam-room');
+                const simGame = document.getElementById('sim-game-feed');
+
+                divTop.style.top = `${config.zoneY1 - 4}px`;
+                divBottom.style.top = `${config.zoneY2 - 4}px`;
+
+                deckPlate.style.top = `${config.zoneY2}px`;
+                deckPlate.style.height = `${1920 - config.zoneY2}px`;
+
+                simRoom.style.height = `${Math.max(200, config.zoneY1 - 140)}px`;
+                simGame.style.top = `${config.zoneY1}px`;
+                simGame.style.height = `${Math.max(200, config.zoneY2 - config.zoneY1)}px`;
+            }
+
+            // ==========================================================================
+            // FREEFORM DRAG & DROP CONTROLLER FOR ALL STAGE WIDGETS
+            // ==========================================================================
+            let draggedWidget = null;
+            let dragStartX = 0;
+            let dragStartY = 0;
+            let widgetOrigLeft = 0;
+            let widgetOrigTop = 0;
+
+            document.querySelectorAll('.overlay-widget').forEach(widget => {
+                widget.addEventListener('pointerdown', (e) => {
+                    if (config.isObsMode) return;
+                    draggedWidget = widget;
+                    dragStartX = e.clientX;
+                    dragStartY = e.clientY;
+                    widgetOrigLeft = parseFloat(widget.style.left) || widget.offsetLeft;
+                    widgetOrigTop = parseFloat(widget.style.top) || widget.offsetTop;
+                    widget.setPointerCapture(e.pointerId);
+                    e.stopPropagation();
+                });
+
+                widget.addEventListener('pointermove', (e) => {
+                    if (!draggedWidget || draggedWidget !== widget) return;
+                    const dx = (e.clientX - dragStartX) / currentStageScale;
+                    const dy = (e.clientY - dragStartY) / currentStageScale;
+                    widget.style.left = `${Math.round(widgetOrigLeft + dx)}px`;
+                    widget.style.top = `${Math.round(widgetOrigTop + dy)}px`;
+                });
+
+                widget.addEventListener('pointerup', (e) => {
+                    if (draggedWidget === widget) {
+                        widget.releasePointerCapture(e.pointerId);
+                        draggedWidget = null;
+                    }
+                });
+            });
+
+            function resetWidgetPositions() {
+                const defaults = {
+                    'widget-goal': { left: 40, top: 1295 },
+                    'widget-likes': { left: 710, top: 1295 },
+                    'widget-chat': { left: 40, top: 1405 },
+                    'widget-events': { left: 710, top: 1405 },
+                    'widget-footer-banner': { left: 190, top: 1695 }
+                };
+                Object.keys(defaults).forEach(id => {
+                    const el = document.getElementById(id);
+                    if (el) {
+                        el.style.left = `${defaults[id].left}px`;
+                        el.style.top = `${defaults[id].top}px`;
+                    }
+                });
+            }
+
+            // ==========================================================================
+            // WEB AUDIO SYNTHESISER & 1080x1920 PARTICLE ENGINE
+            // ==========================================================================
+            let audioCtx = null;
+            function playSynthEffect(type) {
+                if (!config.soundEnabled) return;
+                try {
+                    if (!audioCtx) {
+                        const AudioCtx = window.AudioContext || window.webkitAudioContext;
+                        audioCtx = new AudioCtx();
+                    }
+                    if (audioCtx.state === 'suspended') audioCtx.resume();
+                    const now = audioCtx.currentTime;
+
+                    const osc = audioCtx.createOscillator();
+                    const gain = audioCtx.createGain();
+                    osc.connect(gain);
+                    gain.connect(audioCtx.destination);
+
+                    if (type === 'chat') {
+                        osc.frequency.setValueAtTime(620, now);
+                        osc.frequency.exponentialRampToValueAtTime(920, now + 0.06);
+                        gain.gain.setValueAtTime(0.03, now);
+                        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.065);
+                        osc.start(now);
+                        osc.stop(now + 0.07);
+                    } else if (type === 'gift') {
+                        osc.type = 'triangle';
+                        osc.frequency.setValueAtTime(440, now);
+                        osc.frequency.exponentialRampToValueAtTime(880, now + 0.25);
+                        gain.gain.setValueAtTime(0.06, now);
+                        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.28);
+                        osc.start(now);
+                        osc.stop(now + 0.3);
+                    }
+                } catch (err) {}
+            }
+
+            const fxCanvas = document.getElementById('fx-canvas');
+            const fxCtx = fxCanvas.getContext('2d');
+            const particles = [];
+
+            function triggerParticles(x, y, count = 75) {
+                const colours = [config.primaryColour, config.secondaryColour, '#f43f5e', '#fbbf24', '#ffffff'];
+                for (let i = 0; i < count; i++) {
+                    const angle = Math.random() * Math.PI * 2;
+                    const speed = 4 + Math.random() * 15;
+                    particles.push({
+                        x, y,
+                        vx: Math.cos(angle) * speed,
+                        vy: Math.sin(angle) * speed - 2,
+                        size: 4 + Math.random() * 6,
+                        colour: colours[Math.floor(Math.random() * colours.length)],
+                        alpha: 1,
+                        decay: 0.014 + Math.random() * 0.015
+                    });
+                }
+            }
+
+            function animateParticlesLoop() {
+                fxCtx.clearRect(0, 0, 1080, 1920);
+                for (let i = particles.length - 1; i >= 0; i--) {
+                    const p = particles[i];
+                    p.x += p.vx;
+                    p.y += p.vy;
+                    p.vy += 0.22;
+                    p.alpha -= p.decay;
+                    if (p.alpha <= 0) {
+                        particles.splice(i, 1);
+                        continue;
+                    }
+                    fxCtx.save();
+                    fxCtx.globalAlpha = Math.max(0, p.alpha);
+                    fxCtx.fillStyle = p.colour;
+                    fxCtx.shadowColor = p.colour;
+                    fxCtx.shadowBlur = 10;
+                    fxCtx.beginPath();
+                    fxCtx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+                    fxCtx.fill();
+                    fxCtx.restore();
+                }
+                requestAnimationFrame(animateParticlesLoop);
+            }
+            requestAnimationFrame(animateParticlesLoop);
+
+            // ==========================================================================
+            // LIVE WIDGET CONTROLLERS (CHAT, EVENTS, LIKES, GOAL, ALERTS)
+            // ==========================================================================
+            const sampleUsers = [
+                { name: 'VortexSniperUK', col: '#38bdf8' },
+                { name: 'CyberRonin99', col: '#c084fc' },
+                { name: 'PixelValkyrie', col: '#f43f5e' },
+                { name: 'ApexPredator_TT', col: '#34d399' },
+                { name: 'LunarEclipse', col: '#fbbf24' },
+                { name: 'NeonGhost_GG', col: '#60a5fa' }
+            ];
+
+            const sampleMsgs = [
+                'That camera frame hides the background so cleanly!! 🔥',
+                'W stream Lord Jason! Locked in tonight!',
+                'Tap the screen everyone lets hit the follower goal!',
+                'Cleanest 9:16 vertical setup on TikTok LIVE!',
+                'How did you clutch that round?! Insane aim!',
+                'Galaxy gift incoming!! 🚀🌌'
+            ];
+
+            const chatStreamEl = document.getElementById('chat-feed-stream');
+            function pushChatMessage(user, msg) {
+                const u = user || sampleUsers[Math.floor(Math.random() * sampleUsers.length)];
+                const text = msg || sampleMsgs[Math.floor(Math.random() * sampleMsgs.length)];
+                const row = document.createElement('div');
+                row.className = 'chat-row';
+                row.innerHTML = `<span class="chat-user-tag" style="color:${u.col}">${u.name}:</span><span>${text}</span>`;
+                chatStreamEl.appendChild(row);
+                playSynthEffect('chat');
+                while (chatStreamEl.children.length > 5) {
+                    chatStreamEl.firstElementChild.remove();
+                }
+            }
+
+            const eventsStackEl = document.getElementById('events-stack');
+            function pushEventCard(user, label) {
+                const card = document.createElement('div');
+                card.className = 'event-pill-card';
+                card.innerHTML = `
+                    <div>
+                        <div class="event-pill-user">${user}</div>
+                        <div class="event-pill-type">${label}</div>
+                    </div>
+                    <span style="font-family:var(--font-mono);font-size:11px;color:#94a3b8;">NOW</span>
+                `;
+                eventsStackEl.prepend(card);
+                while (eventsStackEl.children.length > 4) {
+                    eventsStackEl.lastElementChild.remove();
+                }
+            }
+
+            const heartsContainer = document.getElementById('floating-hearts-container');
+            const likesCardInner = document.getElementById('likes-card-inner');
+            function triggerLikesBurst(amount = 15) {
+                config.likesCount += amount;
+                document.getElementById('display-likes-count').textContent = config.likesCount.toLocaleString('en-GB');
+                likesCardInner.classList.add('tap-active');
+                setTimeout(() => likesCardInner.classList.remove('tap-active'), 140);
+
+                const count = Math.min(amount, 8);
+                for (let i = 0; i < count; i++) {
+                    setTimeout(() => {
+                        const h = document.createElement('div');
+                        h.className = 'floating-heart-node';
+                        h.style.left = `${20 + Math.random() * 80}px`;
+                        h.style.color = i % 2 === 0 ? config.primaryColour : '#f43f5e';
+                        h.innerHTML = `<svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg>`;
+                        heartsContainer.appendChild(h);
+
+                        let y = 0;
+                        let alpha = 1;
+                        function stepHeart() {
+                            y += 3.2;
+                            alpha -= 0.022;
+                            h.style.transform = `translateY(${-y}px) scale(${0.8 + (1 - alpha) * 0.4})`;
+                            h.style.opacity = Math.max(0, alpha);
+                            if (alpha > 0) requestAnimationFrame(stepHeart);
+                            else h.remove();
+                        }
+                        requestAnimationFrame(stepHeart);
+                    }, i * 60);
+                }
+            }
+
+            function updateGoalUI() {
+                const pct = Math.min(100, Math.round((config.goalCur / Math.max(1, config.goalMax)) * 100));
+                document.getElementById('display-goal-title').textContent = config.goalTitle;
+                document.getElementById('display-goal-cur').textContent = config.goalCur.toLocaleString('en-GB');
+                document.getElementById('display-goal-max').textContent = config.goalMax.toLocaleString('en-GB');
+                document.getElementById('display-goal-pct').textContent = `${pct}%`;
+                document.getElementById('goal-fill-bar').style.width = `${pct}%`;
+            }
+
+            const alertModal = document.getElementById('gift-alert-modal');
+            let alertTimeout = null;
+            function triggerGiftAlert(sender, giftName) {
+                const u = sender || sampleUsers[Math.floor(Math.random() * sampleUsers.length)].name;
+                document.getElementById('alert-sender-title').textContent = u;
+                document.getElementById('alert-gift-sub').innerHTML = `sent a <strong>${giftName || 'Galaxy Gift'}</strong>!`;
+                alertModal.classList.add('alert-visible');
+                triggerParticles(540, 960, 95);
+                playSynthEffect('gift');
+                pushEventCard(u, `Sent ${giftName || 'Galaxy Gift'}`);
+
+                clearTimeout(alertTimeout);
+                alertTimeout = setTimeout(() => {
+                    alertModal.classList.remove('alert-visible');
+                }, 2800);
+            }
+
+            // Seed initial feed & start Auto-Pilot
+            pushChatMessage(sampleUsers[0], 'Welcome to the 9:16 TikTok LIVE Studio Architect!');
+            pushChatMessage(sampleUsers[1], 'Use the Cam Mask sliders to cover your bedroom background!');
+            pushChatMessage(sampleUsers[2], 'Upload your screenshot in Tab 1 for millimetre-exact alignment.');
+            pushEventCard('Kurokami_GG', 'Followed the stream');
+            pushEventCard('VortexSniperUK', 'Shared the LIVE');
+            pushEventCard('PixelValkyrie', 'Sent Cyber Rose');
+
+            setInterval(() => {
+                if (!config.autoPilot) return;
+                const r = Math.random();
+                if (r < 0.5) pushChatMessage();
+                else if (r < 0.82) triggerLikesBurst(Math.floor(Math.random() * 9) + 3);
+                else if (r < 0.94) {
+                    const u = sampleUsers[Math.floor(Math.random() * sampleUsers.length)].name;
+                    pushEventCard(u, 'Followed the stream');
+                }
+            }, 2400);
+
+            // ==========================================================================
+            // UI CONTROLS & SLIDER BINDINGS
+            // ==========================================================================
+            // Tab switching
+            document.querySelectorAll('.tab-btn').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('tab-active'));
+                    document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('pane-active'));
+                    btn.classList.add('tab-active');
+                    document.getElementById(btn.getAttribute('data-tab')).classList.add('pane-active');
+                });
+            });
+
+            // Collapse / Reopen Sidebar (Shortcut: H)
+            const sidebar = document.getElementById('studio-sidebar');
+            function toggleSidebar() {
+                sidebar.classList.toggle('sidebar-collapsed');
+                setTimeout(fitVerticalStage, 310);
+            }
+            document.getElementById('btn-collapse-sidebar').addEventListener('click', toggleSidebar);
+            document.getElementById('floating-reopen-btn').addEventListener('click', toggleSidebar);
+            window.addEventListener('keydown', (e) => {
+                if (e.key.toLowerCase() === 'h' && document.activeElement.tagName !== 'INPUT') {
+                    toggleSidebar();
+                }
+            });
+
+            // Custom Reference Screenshot Upload
+            const refImg = document.getElementById('uploaded-ref-img');
+            document.getElementById('input-upload-ref').addEventListener('change', (e) => {
+                const file = e.target.files && e.target.files[0];
+                if (!file) return;
+                const reader = new FileReader();
+                reader.onload = (ev) => {
+                    refImg.src = ev.target.result;
+                    refImg.style.display = 'block';
+                };
+                reader.readAsDataURL(file);
+            });
+
+            document.getElementById('btn-reset-ref').addEventListener('click', () => {
+                refImg.style.display = 'none';
+                refImg.src = '';
+            });
+
+            document.getElementById('toggle-safe-zones').addEventListener('change', (e) => {
+                document.getElementById('tiktok-safe-zones').classList.toggle('safe-hidden', !e.target.checked);
+            });
+
+            // Camera Cutout Shape Buttons
+            document.querySelectorAll('[data-shape]').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    document.querySelectorAll('[data-shape]').forEach(b => b.classList.remove('btn-selected'));
+                    btn.classList.add('btn-selected');
+                    config.camShape = btn.getAttribute('data-shape');
+                    renderCameraMaskAndZones();
+                });
+            });
+
+            // Camera Privacy Sliders Helper
+            function bindSlider(sliderId, valId, configKey, unit = 'px', transformFn = null) {
+                const slider = document.getElementById(sliderId);
+                const valEl = document.getElementById(valId);
+                slider.addEventListener('input', (e) => {
+                    const raw = parseFloat(e.target.value);
+                    config[configKey] = transformFn ? transformFn(raw) : raw;
+                    valEl.textContent = `${raw}${unit}`;
+                    renderCameraMaskAndZones();
+                });
+            }
+
+            bindSlider('slider-crop-left', 'val-crop-left', 'cropLeft');
+            bindSlider('slider-crop-right', 'val-crop-right', 'cropRight');
+            bindSlider('slider-crop-top', 'val-crop-top', 'cropTop');
+            bindSlider('slider-crop-bottom', 'val-crop-bottom', 'cropBottom');
+            bindSlider('slider-cam-radius', 'val-cam-radius', 'camRadius');
+            bindSlider('slider-cam-vignette', 'val-cam-vignette', 'camVignette');
+            bindSlider('slider-mask-opacity', 'val-mask-opacity', 'maskOpacity', '%', v => v / 100);
+
+            bindSlider('slider-zone-y1', 'val-zone-y1', 'zoneY1');
+            bindSlider('slider-zone-y2', 'val-zone-y2', 'zoneY2');
+            bindSlider('slider-border-w', 'val-border-w', 'borderWidth');
+
+            document.getElementById('slider-deck-opacity').addEventListener('input', (e) => {
+                const v = parseFloat(e.target.value);
+                config.deckOpacity = v / 100;
+                document.getElementById('val-deck-opacity').textContent = `${v}%`;
+                document.documentElement.style.setProperty('--deck-opacity', config.deckOpacity);
+            });
+
+            // Quick Camera Bunker Presets
+            function applyCamPreset(shape, l, r, t, b, rad, vig) {
+                config.camShape = shape;
+                config.cropLeft = l;
+                config.cropRight = r;
+                config.cropTop = t;
+                config.cropBottom = b;
+                config.camRadius = rad;
+                config.camVignette = vig;
+
+                document.getElementById('slider-crop-left').value = l;
+                document.getElementById('val-crop-left').textContent = `${l}px`;
+                document.getElementById('slider-crop-right').value = r;
+                document.getElementById('val-crop-right').textContent = `${r}px`;
+                document.getElementById('slider-crop-top').value = t;
+                document.getElementById('val-crop-top').textContent = `${t}px`;
+                document.getElementById('slider-crop-bottom').value = b;
+                document.getElementById('val-crop-bottom').textContent = `${b}px`;
+                document.getElementById('slider-cam-radius').value = rad;
+                document.getElementById('val-cam-radius').textContent = `${rad}px`;
+                document.getElementById('slider-cam-vignette').value = vig;
+                document.getElementById('val-cam-vignette').textContent = `${vig}px`;
+
+                document.querySelectorAll('[data-shape]').forEach(btn => {
+                    btn.classList.toggle('btn-selected', btn.getAttribute('data-shape') === shape);
+                });
+                renderCameraMaskAndZones();
+            }
+
+            document.getElementById('preset-bunker-tight').addEventListener('click', () => applyCamPreset('chamfer', 275, 275, 215, 645, 48, 55));
+            document.getElementById('preset-pod-circle').addEventListener('click', () => applyCamPreset('circle', 310, 310, 200, 645, 200, 45));
+            document.getElementById('preset-hex-portal').addEventListener('click', () => applyCamPreset('hexagon', 250, 250, 210, 645, 40, 50));
+            document.getElementById('preset-wide-cinema').addEventListener('click', () => applyCamPreset('rounded', 120, 120, 195, 645, 32, 65));
+
+            // Side Wing HUD Toggles & Text
+            document.getElementById('toggle-wing-hud').addEventListener('change', (e) => {
+                config.showWingHud = e.target.checked;
+                renderCameraMaskAndZones();
+            });
+            document.getElementById('input-wing-left').addEventListener('input', (e) => {
+                document.getElementById('wing-left-label').textContent = e.target.value;
+            });
+            document.getElementById('input-wing-right').addEventListener('input', (e) => {
+                document.getElementById('wing-right-label').textContent = e.target.value;
+            });
+
+            // Viewport Mode Buttons
+            document.querySelectorAll('[data-viewmode]').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    document.querySelectorAll('[data-viewmode]').forEach(b => b.classList.remove('btn-selected'));
+                    btn.classList.add('btn-selected');
+                    const mode = btn.getAttribute('data-viewmode');
+                    const underlay = document.getElementById('reference-underlay');
+                    const safeZones = document.getElementById('tiktok-safe-zones');
+
+                    if (mode === 'simulated') {
+                        viewportEl.className = 'stage-viewport';
+                        underlay.classList.remove('underlay-hidden');
+                        safeZones.classList.remove('safe-hidden');
+                    } else if (mode === 'grid') {
+                        viewportEl.className = 'stage-viewport mode-alpha-grid';
+                        underlay.classList.add('underlay-hidden');
+                    } else {
+                        viewportEl.className = 'stage-viewport mode-pure-obs';
+                        underlay.classList.add('underlay-hidden');
+                        safeZones.classList.add('safe-hidden');
+                    }
+                });
+            });
+
+            // Footer Banner Text Inputs
+            document.getElementById('input-footer-main').addEventListener('input', (e) => {
+                document.getElementById('display-footer-headline').textContent = e.target.value;
+            });
+            document.getElementById('input-footer-sub').addEventListener('input', (e) => {
+                document.getElementById('display-footer-subline').textContent = e.target.value;
+            });
+
+            // Widget Visibility Toggles
+            document.querySelectorAll('[data-widget-toggle]').forEach(chk => {
+                chk.addEventListener('change', (e) => {
+                    const target = document.getElementById(chk.getAttribute('data-widget-toggle'));
+                    if (target) target.classList.toggle('widget-hidden', !e.target.checked);
+                });
+            });
+
+            document.getElementById('btn-reset-widgets').addEventListener('click', resetWidgetPositions);
+
+            // Goal Inputs
+            document.getElementById('input-goal-title').addEventListener('input', (e) => {
+                config.goalTitle = e.target.value;
+                updateGoalUI();
+            });
+            document.getElementById('input-goal-cur').addEventListener('input', (e) => {
+                config.goalCur = parseInt(e.target.value, 10) || 0;
+                updateGoalUI();
+            });
+            document.getElementById('input-goal-max').addEventListener('input', (e) => {
+                config.goalMax = parseInt(e.target.value, 10) || 100;
+                updateGoalUI();
+            });
+
+            // Theme Colours
+            function updateThemePalette(pHex, sHex, bgHex) {
+                config.primaryColour = pHex;
+                config.secondaryColour = sHex;
+                config.shutterColour = bgHex;
+
+                const pRgb = hexToRgbObj(pHex);
+                const sRgb = hexToRgbObj(sHex);
+                const bgRgb = hexToRgbObj(bgHex);
+
+                const root = document.documentElement;
+                root.style.setProperty('--primary-colour', pHex);
+                root.style.setProperty('--primary-rgb', `${pRgb.r}, ${pRgb.g}, ${pRgb.b}`);
+                root.style.setProperty('--secondary-colour', sHex);
+                root.style.setProperty('--secondary-rgb', `${sRgb.r}, ${sRgb.g}, ${sRgb.b}`);
+                root.style.setProperty('--shutter-bg', bgHex);
+                root.style.setProperty('--shutter-rgb', `${bgRgb.r}, ${bgRgb.g}, ${bgRgb.b}`);
+
+                document.getElementById('colour-primary').value = pHex;
+                document.getElementById('colour-secondary').value = sHex;
+                document.getElementById('colour-shutter').value = bgHex;
+                document.getElementById('label-col-p').textContent = pHex.toUpperCase();
+                document.getElementById('label-col-s').textContent = sHex.toUpperCase();
+                document.getElementById('label-col-bg').textContent = bgHex.toUpperCase();
+
+                renderCameraMaskAndZones();
+            }
+
+            document.getElementById('colour-primary').addEventListener('input', (e) => updateThemePalette(e.target.value, config.secondaryColour, config.shutterColour));
+            document.getElementById('colour-secondary').addEventListener('input', (e) => updateThemePalette(config.primaryColour, e.target.value, config.shutterColour));
+            document.getElementById('colour-shutter').addEventListener('input', (e) => updateThemePalette(config.primaryColour, config.secondaryColour, e.target.value));
+
+            document.querySelectorAll('[data-theme-p]').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    updateThemePalette(btn.getAttribute('data-theme-p'), btn.getAttribute('data-theme-s'), config.shutterColour);
+                });
+            });
+
+            // Simulator Buttons
+            document.getElementById('sim-btn-chat').addEventListener('click', () => pushChatMessage());
+            document.getElementById('sim-btn-likes').addEventListener('click', () => triggerLikesBurst(50));
+            document.getElementById('sim-btn-follow').addEventListener('click', () => {
+                const u = sampleUsers[Math.floor(Math.random() * sampleUsers.length)].name;
+                pushEventCard(u, 'Followed the stream');
+                config.goalCur = Math.min(config.goalMax, config.goalCur + 5);
+                updateGoalUI();
+            });
+            document.getElementById('sim-btn-galaxy').addEventListener('click', () => triggerGiftAlert('CyberSamurai99', 'Galaxy Gift'));
+
+            document.getElementById('toggle-autopilot').addEventListener('change', (e) => {
+                config.autoPilot = e.target.checked;
+            });
+            document.getElementById('toggle-sound').addEventListener('change', (e) => {
+                config.soundEnabled = e.target.checked;
+            });
+
+            // ==========================================================================
+            // DUAL EXPORT ENGINE: 1. STANDALONE HTML SOURCE | 2. 1080x1920 TRANSPARENT PNG
+            // ==========================================================================
+            const exportModal = document.getElementById('export-modal');
+            const exportTextarea = document.getElementById('export-textarea');
+
+            document.getElementById('btn-export-html').addEventListener('click', () => {
+                const clone = document.documentElement.cloneNode(true);
+                const cloneBody = clone.querySelector('body');
+                cloneBody.classList.add('obs-production-mode');
+                const cloneViewport = clone.querySelector('#stage-viewport');
+                if (cloneViewport) cloneViewport.className = 'stage-viewport mode-pure-obs';
+                const cloneStage = clone.querySelector('#tiktok-stage');
+                if (cloneStage) cloneStage.style.transform = 'scale(1)';
+                const cloneRefImg = clone.querySelector('#uploaded-ref-img');
+                if (cloneRefImg) cloneRefImg.removeAttribute('src');
+
+                exportTextarea.value = '<!DOCTYPE html>\n' + clone.outerHTML;
+                exportModal.classList.add('modal-active');
+            });
+
+            document.getElementById('btn-close-modal').addEventListener('click', () => {
+                exportModal.classList.remove('modal-active');
+            });
+
+            document.getElementById('btn-copy-clipboard').addEventListener('click', () => {
+                exportTextarea.select();
+                document.execCommand('copy');
+                const statusEl = document.getElementById('copy-status-text');
+                statusEl.textContent = 'Copied to Clipboard!';
+                setTimeout(() => {
+                    statusEl.textContent = 'Copy Full 1080x1920 HTML to Clipboard';
+                }, 2200);
+            });
+
+            // High-Resolution 1080x1920 Transparent PNG Frame Exporter for direct image drop into TikTok Studio
+            document.getElementById('btn-export-png').addEventListener('click', () => {
+                const outCanvas = document.createElement('canvas');
+                outCanvas.width = 1080;
+                outCanvas.height = 1920;
+                const outCtx = outCanvas.getContext('2d');
+
+                // 1. Draw Camera Privacy Bunker Mask & Frame
+                renderCameraMaskAndZones(outCtx);
+
+                // 2. Draw Bottom Deck Plate
+                const bgRgb = hexToRgbObj(config.shutterColour);
+                outCtx.fillStyle = `rgba(${bgRgb.r}, ${bgRgb.g}, ${bgRgb.b}, ${config.deckOpacity})`;
+                outCtx.fillRect(0, config.zoneY2, 1080, 1920 - config.zoneY2);
+
+                // 3. Draw Zone Divider Bars
+                const divGrad = outCtx.createLinearGradient(0, 0, 1080, 0);
+                divGrad.addColorStop(0, config.secondaryColour);
+                divGrad.addColorStop(0.5, config.primaryColour);
+                divGrad.addColorStop(1, config.secondaryColour);
+
+                outCtx.fillStyle = divGrad;
+                outCtx.shadowColor = config.primaryColour;
+                outCtx.shadowBlur = 20;
+                outCtx.fillRect(0, config.zoneY1 - 4, 1080, 8);
+                outCtx.fillRect(0, config.zoneY2 - 4, 1080, 8);
+
+                // 4. Draw Footer Headline Text
+                outCtx.save();
+                outCtx.textAlign = 'center';
+                outCtx.font = '800 40px Rajdhani, sans-serif';
+                outCtx.fillStyle = config.primaryColour;
+                outCtx.shadowColor = config.primaryColour;
+                outCtx.shadowBlur = 18;
+                const mainText = document.getElementById('display-footer-headline').textContent;
+                const subText = document.getElementById('display-footer-subline').textContent;
+                outCtx.fillText(mainText, 540, 1735);
+
+                outCtx.font = '700 14px "JetBrains Mono", monospace';
+                outCtx.fillStyle = '#e2e8f0';
+                outCtx.shadowBlur = 0;
+                outCtx.fillText(subText, 540, 1762);
+                outCtx.restore();
+
+                // Trigger Download
+                const dataUrl = outCanvas.toDataURL('image/png');
+                const link = document.createElement('a');
+                link.download = 'tiktok_studio_1080x1920_privacy_overlay.png';
+                link.href = dataUrl;
+                link.click();
+            });
+
+            // Initial Render
+            renderCameraMaskAndZones();
+        })();
+    </script>
+
+</body></html>
